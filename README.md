@@ -1,7 +1,7 @@
 <img src="/.github/assets/icon.png" width="200px" height="200px" align="right" alt="glimo-icon"/>
 
 # glimo
-🎨 A powerful Go library for drawing shapes, text, images, and performing automatic layout.
+🎨 A lightweight and powerful Go library for clear, easy 2D graphics, shapes, text, and auto layout.
 
 ![Go Version](https://img.shields.io/github/go-mod/go-version/krispeckt/glimo?color=blue)
 ![License](https://img.shields.io/github/license/krispeckt/glimo)
