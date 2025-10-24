@@ -1,0 +1,317 @@
+package glimo_test
+
+import (
+	"image"
+	"testing"
+
+	"github.com/Krispeckt/glimo/colors"
+	"github.com/Krispeckt/glimo/instructions"
+	"github.com/Krispeckt/glimo/internal/core/geom"
+	"github.com/stretchr/testify/require"
+)
+
+// mockShape implements BoundedShape for layout verification.
+type mockShape struct {
+	name      string
+	x, y      int
+	w, h      int
+	drawCalls int
+}
+
+func newMock(name string, w, h int) *mockShape { return &mockShape{name: name, w: w, h: h} }
+
+func (m *mockShape) Draw(_, _ *image.RGBA) { m.drawCalls++ }
+
+func (m *mockShape) Position() (int, int) { return m.x, m.y }
+func (m *mockShape) SetPosition(x, y int) { m.x, m.y = x, y }
+func (m *mockShape) Size() *geom.Size     { return geom.NewSize(float64(m.w), float64(m.h)) }
+
+// helpers
+func newCanvases() (*image.RGBA, *image.RGBA) {
+	base := image.NewRGBA(image.Rect(0, 0, 800, 600))
+	overlay := image.NewRGBA(image.Rect(0, 0, 800, 600))
+	return base, overlay
+}
+
+func TestAutoLayoutRowJustifyAndGap(t *testing.T) {
+	type tc struct {
+		name      string
+		style     instructions.ContainerStyle
+		expectPos [][2]int // [(x,y) per item]
+	}
+	m1 := newMock("a", 50, 20)
+	m2 := newMock("b", 30, 20)
+
+	cases := []tc{
+		{
+			name: "row_start_gap",
+			style: instructions.ContainerStyle{
+				Display:    instructions.DisplayFlex,
+				Direction:  instructions.Row,
+				Wrap:       false,
+				Padding:    [4]int{5, 5, 5, 5},
+				Gap:        instructions.Vector2{X: 10, Y: 0},
+				Justify:    instructions.JustifyStart,
+				AlignItems: instructions.AlignItemsStart,
+				Width:      200,
+				Height:     60,
+			},
+			// x1=10+5=15, y1=20+5=25; x2=15+50+10=75, y2=25
+			expectPos: [][2]int{{15, 25}, {75, 25}},
+		},
+		{
+			name: "row_center_gap",
+			style: instructions.ContainerStyle{
+				Display:    instructions.DisplayFlex,
+				Direction:  instructions.Row,
+				Wrap:       false,
+				Padding:    [4]int{5, 5, 5, 5},
+				Gap:        instructions.Vector2{X: 10, Y: 0},
+				Justify:    instructions.JustifyCenter,
+				AlignItems: instructions.AlignItemsStart,
+				Width:      200, // innerW=190; base=50+10+30=90; free=100; offset=50
+				Height:     60,
+			},
+			// x1=10+5+50=65; x2=65+50+10=125; y=25
+			expectPos: [][2]int{{65, 25}, {125, 25}},
+		},
+	}
+
+	for _, cse := range cases {
+		t.Run(cse.name, func(t *testing.T) {
+			// reset mocks
+			m1.x, m1.y, m1.drawCalls = 0, 0, 0
+			m2.x, m2.y, m2.drawCalls = 0, 0, 0
+
+			al := instructions.NewAutoLayout(10, 20, cse.style)
+			al.Add(m1, instructions.ItemStyle{})
+			al.Add(m2, instructions.ItemStyle{})
+
+			base, overlay := newCanvases()
+			al.Draw(base, overlay)
+
+			require.Equal(t, cse.expectPos[0][0], m1.x)
+			require.Equal(t, cse.expectPos[0][1], m1.y)
+			require.Equal(t, cse.expectPos[1][0], m2.x)
+			require.Equal(t, cse.expectPos[1][1], m2.y)
+			require.Greater(t, m1.drawCalls, 0)
+			require.Greater(t, m2.drawCalls, 0)
+		})
+	}
+}
+
+func TestAutoLayoutRowAlignItems(t *testing.T) {
+	// m1.h=20, m2.h=40; line cross=40; center => y1=20+5+10=35, y2=20+5+0=25
+	m1 := newMock("a", 50, 20)
+	m2 := newMock("b", 30, 40)
+
+	style := instructions.ContainerStyle{
+		Display:    instructions.DisplayFlex,
+		Direction:  instructions.Row,
+		Padding:    [4]int{5, 5, 5, 5},
+		Gap:        instructions.Vector2{X: 10, Y: 0},
+		Justify:    instructions.JustifyStart,
+		AlignItems: instructions.AlignItemsCenter,
+		Width:      200,
+		Height:     80,
+	}
+
+	al := instructions.NewAutoLayout(10, 20, style)
+	al.Add(m1, instructions.ItemStyle{})
+	al.Add(m2, instructions.ItemStyle{})
+
+	base, overlay := newCanvases()
+	al.Draw(base, overlay)
+
+	require.Equal(t, 15, m1.x)
+	require.Equal(t, 35, m1.y) // centered within 40px cross
+	require.Equal(t, 75, m2.x)
+	require.Equal(t, 25, m2.y) // taller item stays at top in center formula
+}
+
+func TestAutoLayoutWrapRow(t *testing.T) {
+	// innerW=110; items: 70 and 60; 70+10+60>110 => wrap.
+	m1 := newMock("a", 70, 20)
+	m2 := newMock("b", 60, 18)
+
+	style := instructions.ContainerStyle{
+		Display:    instructions.DisplayFlex,
+		Direction:  instructions.Row,
+		Wrap:       true,
+		Padding:    [4]int{5, 5, 5, 5},
+		Gap:        instructions.Vector2{X: 10, Y: 6},
+		Justify:    instructions.JustifyStart,
+		AlignItems: instructions.AlignItemsStart,
+		Width:      120, // innerW=110
+		Height:     200,
+	}
+
+	al := instructions.NewAutoLayout(10, 20, style)
+	al.Add(m1, instructions.ItemStyle{})
+	al.Add(m2, instructions.ItemStyle{})
+
+	base, overlay := newCanvases()
+	al.Draw(base, overlay)
+
+	// First line y=25; second line y = 25 + cross(=20) + gy(=6) = 51
+	require.Equal(t, 15, m1.x)
+	require.Equal(t, 25, m1.y)
+	require.Equal(t, 15, m2.x)
+	require.Equal(t, 51, m2.y)
+}
+
+func TestAutoLayoutColumnDirection(t *testing.T) {
+	// column: main=Y, cross=X
+	m1 := newMock("a", 30, 30)
+	m2 := newMock("b", 50, 50)
+
+	style := instructions.ContainerStyle{
+		Display:    instructions.DisplayFlex,
+		Direction:  instructions.Column,
+		Wrap:       false,
+		Padding:    [4]int{5, 5, 5, 5},
+		Gap:        instructions.Vector2{X: 0, Y: 10},
+		Justify:    instructions.JustifyStart,
+		AlignItems: instructions.AlignItemsStart,
+		Width:      200,
+		Height:     200,
+	}
+
+	al := instructions.NewAutoLayout(10, 20, style)
+	al.Add(m1, instructions.ItemStyle{})
+	al.Add(m2, instructions.ItemStyle{})
+
+	base, overlay := newCanvases()
+	al.Draw(base, overlay)
+
+	// x fixed at 15, y steps by heights + gy
+	require.Equal(t, 15, m1.x)
+	require.Equal(t, 25, m1.y)
+	require.Equal(t, 15, m2.x)
+	require.Equal(t, 65, m2.y) // 25 + 30 + 10
+}
+
+func TestAutoLayoutAbsolutePositioning(t *testing.T) {
+	abs := newMock("abs", 30, 20)
+
+	top := 10
+	right := 15
+
+	style := instructions.ContainerStyle{
+		Display:   instructions.DisplayFlex,
+		Direction: instructions.Row,
+		Padding:   [4]int{5, 5, 5, 5},
+		Gap:       instructions.Vector2{X: 8, Y: 8},
+		Width:     200, // innerW=190
+		Height:    100, // innerH=90
+	}
+
+	al := instructions.NewAutoLayout(10, 20, style)
+	al.Add(abs, instructions.ItemStyle{
+		Position: instructions.PosAbsolute,
+		Top:      &top,
+		Right:    &right,
+		ZIndex:   10,
+	})
+
+	base, overlay := newCanvases()
+	al.Draw(base, overlay)
+
+	// padding-box: cx0=10+5=15; cy0=20+5=25; cx1=10+5+190=205
+	// x = 205 - 15 - 30 = 160; y = 25 + 10 = 35
+	require.Equal(t, 160, abs.x)
+	require.Equal(t, 35, abs.y)
+}
+
+func TestAutoLayoutFlexGrowShrinkRow(t *testing.T) {
+	// innerW=280; base = 50 + 10 + 50 = 110; free=170
+	// grow: a=1, b=3 => sizes: a=50+42=92, b=50+127=177
+	a := newMock("a", 50, 20)
+	b := newMock("b", 50, 20)
+
+	style := instructions.ContainerStyle{
+		Display:    instructions.DisplayFlex,
+		Direction:  instructions.Row,
+		Padding:    [4]int{5, 5, 5, 5},
+		Gap:        instructions.Vector2{X: 10, Y: 0},
+		Justify:    instructions.JustifyStart,
+		AlignItems: instructions.AlignItemsStart,
+		Width:      300, // innerW=280
+		Height:     80,
+	}
+
+	al := instructions.NewAutoLayout(10, 20, style)
+	al.Add(a, instructions.ItemStyle{FlexGrow: 1})
+	al.Add(b, instructions.ItemStyle{FlexGrow: 3})
+
+	base, overlay := newCanvases()
+	al.Draw(base, overlay)
+
+	// x(a)=15; x(b)=15+92+10=117
+	require.Equal(t, 15, a.x)
+	require.Equal(t, 25, a.y)
+	require.Equal(t, 117, b.x)
+	require.Equal(t, 25, b.y)
+}
+
+func TestAutoLayoutAlignSelfOverrides(t *testing.T) {
+	// container AlignItemsStart, item overrides to Center
+	m := newMock("m", 40, 20)
+
+	style := instructions.ContainerStyle{
+		Display:    instructions.DisplayFlex,
+		Direction:  instructions.Row,
+		Padding:    [4]int{5, 5, 5, 5},
+		Gap:        instructions.Vector2{X: 0, Y: 0},
+		Justify:    instructions.JustifyStart,
+		AlignItems: instructions.AlignItemsStart,
+		Width:      200,
+		Height:     60,
+	}
+	align := instructions.AlignItemsCenter
+
+	al := instructions.NewAutoLayout(10, 20, style)
+	al.Add(m, instructions.ItemStyle{AlignSelf: &align})
+
+	base, overlay := newCanvases()
+	al.Draw(base, overlay)
+
+	// line cross equals item height => center => y = 25 (no offset)
+	require.Equal(t, 15, m.x)
+	require.Equal(t, 25, m.y)
+}
+
+func TestAutoLayoutOutput(t *testing.T) {
+	layer := newLayer(t, 500, 1000)
+
+	layer.LoadInstruction(
+		instructions.NewAutoLayout(
+			10, 20,
+			instructions.ContainerStyle{
+				Display:    instructions.DisplayFlex,
+				Direction:  instructions.Column,
+				Padding:    [4]int{16, 16, 16, 16},
+				Gap:        instructions.Vector2{X: 0, Y: 16},
+				Justify:    instructions.JustifyStart,
+				AlignItems: instructions.AlignItemsStart,
+				Width:      500,
+				Height:     1000,
+			},
+		).Add(
+			instructions.NewRectangle(0, 0, 100, 100).
+				SetRadius(20).
+				SetFillColor(colors.Coral).
+				SetStrokeColor(colors.Navy),
+			instructions.ItemStyle{},
+		).Add(
+			instructions.NewRectangle(0, 0, 100, 100).
+				SetRadius(20).
+				SetFillColor(colors.Coral).
+				SetStrokeColor(colors.Navy),
+			instructions.ItemStyle{},
+		),
+	)
+
+	err := layer.Export("./output/auto_layout.png")
+	require.NoError(t, err, "export failed for auto_layout")
+}
