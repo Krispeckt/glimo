@@ -2,6 +2,7 @@ package colors
 
 import (
 	"image"
+	"strings"
 
 	"github.com/Krispeckt/glimo/internal/core/image/patterns"
 )
@@ -182,3 +183,36 @@ const (
 	BlendLinearBurn  BlendMode = patterns.BlendLinearBurn  // alias for PlusDarker
 	BlendLinearDodge BlendMode = patterns.BlendLinearDodge // alias for PlusLighter
 )
+
+var BlendModeMap = map[string]BlendMode{
+	"pass-through": BlendPassThrough,
+	"normal":       BlendNormal,
+	"darken":       BlendDarken,
+	"multiply":     BlendMultiply,
+	"plus-darker":  BlendPlusDarker,
+	"color-burn":   BlendColorBurn,
+	"lighten":      BlendLighten,
+	"screen":       BlendScreen,
+	"plus-lighter": BlendPlusLighter,
+	"color-dodge":  BlendColorDodge,
+	"overlay":      BlendOverlay,
+	"soft-light":   BlendSoftLight,
+	"hard-light":   BlendHardLight,
+	"difference":   BlendDifference,
+	"exclusion":    BlendExclusion,
+	"hue":          BlendHue,
+	"saturation":   BlendSaturation,
+	"color":        BlendColor,
+	"luminosity":   BlendLuminosity,
+	"linear-burn":  BlendLinearBurn,
+	"linear-dodge": BlendLinearDodge,
+}
+
+// ParseBlendMode converts a string into the corresponding BlendMode constant.
+// Returns BlendNormal if not found.
+func ParseBlendMode(s string) BlendMode {
+	if mode, ok := BlendModeMap[strings.ToLower(s)]; ok {
+		return mode
+	}
+	return BlendNormal
+}
