@@ -318,21 +318,23 @@ func (al *AutoLayout) computeInner(isRow bool) (innerW, innerH, pl, pt, gx, gy i
 
 // buildLines partitions children into flex lines depending on wrapping and main-axis limits.
 // The gap before an item is skipped if that item's ItemStyle.IgnoreGapBefore is true.
-// If a gap is skipped, the effective main-axis limit for that line is reduced by the gap size.
+// For Column with Height==0 (auto height), gaps are ignored only visually, not in limit calculation.
 func (al *AutoLayout) buildLines(isRow bool, mainLimit, gx, gy int) []line {
 	var (
 		lines []line
 		cur   line
 	)
-	gapMain := gx
-	if !isRow {
-		gapMain = gy
-	}
 	push := func() {
 		if len(cur.items) > 0 {
 			lines = append(lines, cur)
 			cur = line{}
 		}
+	}
+
+	autoHeightColumn := !isRow && al.style.Height == 0
+	gapMain := gx
+	if !isRow {
+		gapMain = gy
 	}
 
 	for _, n := range al.children {
@@ -341,35 +343,32 @@ func (al *AutoLayout) buildLines(isRow bool, mainLimit, gx, gy int) []line {
 		}
 		baseMain, baseCross := baseMainCross(n, isRow)
 
-		// Effective limit accounts for previously skipped gaps in this line.
-		effectiveLimit := mainLimit - cur.skippedGaps*gapMain
-		if effectiveLimit < 0 {
-			effectiveLimit = 0
-		}
-
-		// Compute current line length if we append this item, including fixed gaps unless skipped.
+		// Compute tentative line length if this item is added.
 		itemWithGap := baseMain
-		addGap := len(cur.items) > 0 && !n.st.IgnoreGapBefore
-		if len(cur.items) > 0 && addGap {
-			itemWithGap += gapMain
+		if len(cur.items) > 0 {
+			if !n.st.IgnoreGapBefore {
+				itemWithGap += gapMain
+			}
 		}
 
-		// Wrap if enabled and limit exceeded.
-		if al.style.Wrap && len(cur.items) > 0 && cur.base+itemWithGap > effectiveLimit {
-			push()
-			// Recompute effective limit for the new line.
-			effectiveLimit = mainLimit - cur.skippedGaps*gapMain
+		// Compute the effective line limit, respecting auto-height column logic.
+		effectiveLimit := mainLimit
+		if !autoHeightColumn && effectiveLimit > 0 {
+			effectiveLimit -= 0 // keep consistent path, placeholder for future adjustments
 			if effectiveLimit < 0 {
 				effectiveLimit = 0
 			}
 		}
 
-		// Accumulate.
+		// Wrap to a new line if needed.
+		if al.style.Wrap && len(cur.items) > 0 && cur.base+itemWithGap > effectiveLimit {
+			push()
+		}
+
+		// Add this item to the current line.
 		if len(cur.items) > 0 {
-			if addGap {
+			if !n.st.IgnoreGapBefore {
 				cur.base += gapMain
-			} else {
-				cur.skippedGaps++
 			}
 		}
 		cur.items = append(cur.items, n)
@@ -749,13 +748,12 @@ func (al *AutoLayout) positionAbsolute(innerW, innerH, pl, pt int) {
 	}
 }
 
-// layoutFlex executes the entire flex layout computation pipeline,
-// returning the resolved inner content box dimensions.
+// layoutFlex executes the complete flex layout pipeline, computing final positions and sizes.
+// It resolves auto cross-sizes, applies wrapping, gaps, and IgnoreGapBefore logic.
 func (al *AutoLayout) layoutFlex() (innerW, innerH int) {
 	isRow := al.style.Direction == Row
 
 	innerW, innerH, pl, pt, gx, gy := al.computeInner(isRow)
-
 	mainLimit := innerW
 	if !isRow {
 		mainLimit = innerH
@@ -763,9 +761,8 @@ func (al *AutoLayout) layoutFlex() (innerW, innerH int) {
 
 	lines := al.buildLines(isRow, mainLimit, gx, gy)
 
-	// Auto cross-size resolution for wrapped content:
-	// - Row + auto Height: sum of line cross-sizes plus cross gaps
-	// - Column + auto Width: sum of line cross-sizes plus cross gaps
+	// --- Auto cross-size resolution ---
+	// Row + auto Height: sum of line cross sizes + gaps.
 	if al.style.Height == 0 && isRow {
 		sum := 0
 		for i, ln := range lines {
@@ -776,6 +773,28 @@ func (al *AutoLayout) layoutFlex() (innerW, innerH int) {
 		}
 		innerH = sum
 	}
+
+	// Column + auto Height: recompute by summing items and only non-ignored gaps.
+	if al.style.Height == 0 && !isRow {
+		total := 0
+		gapMain := gy
+		for _, ln := range lines {
+			lineMain := 0
+			for i, n := range ln.items {
+				bm, _ := baseMainCross(n, false) // main=Y for Column
+				lineMain += bm
+				if i > 0 && !ln.items[i].st.IgnoreGapBefore {
+					lineMain += gapMain
+				}
+			}
+			if lineMain > total {
+				total = lineMain
+			}
+		}
+		innerH = total
+	}
+
+	// Column + auto Width (same as Row + auto Height).
 	if al.style.Width == 0 && !isRow {
 		sum := 0
 		for i, ln := range lines {

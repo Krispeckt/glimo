@@ -344,10 +344,89 @@ func TestAutoLayoutIgnoreGapBefore(t *testing.T) {
 	base, overlay := newCanvases()
 	al.Draw(base, overlay)
 
+	// Позиции.
 	require.Equal(t, 15, a.x)
 	require.Equal(t, 25, a.y)
 	require.Equal(t, 65, b.x) // gap skipped
 	require.Equal(t, 25, b.y)
 	require.Greater(t, a.drawCalls, 0)
 	require.Greater(t, b.drawCalls, 0)
+
+	// Проверка размеров контейнера.
+	sz := al.Size()
+	require.Equal(t, 200.0, sz.Width())
+	require.Equal(t, 60.0, sz.Height())
+
+	// Checking the “length” of the occupied line.
+	// Left border of content-box = origin.x + paddingLeft = 10 + 5 = 15.
+	// Right border of last element = b.x + b.w = 65 + 30 = 95.
+	// Occupied length = 95 - 15 = 80 (50 + 0 + 30).
+	contentLeft := 10 + 5
+	used := (b.x + b.w) - contentLeft
+	require.Equal(t, 80, used)
+
+	// gap: 190 - 1*10 = 180.
+	innerW := style.Width - style.Padding[3] - style.Padding[1]
+	effectiveLimit := innerW - int(style.Gap.X) // один пропущенный gap
+	require.LessOrEqual(t, used, effectiveLimit)
+
+	a2 := newMock("a2", 50, 20)
+	b2 := newMock("b2", 30, 20)
+	al2 := instructions.NewAutoLayout(10, 20, style)
+	al2.Add(a2, instructions.ItemStyle{})
+	al2.Add(b2, instructions.ItemStyle{})
+
+	base2, overlay2 := newCanvases()
+	al2.Draw(base2, overlay2)
+
+	require.Equal(t, 75, b2.x)                    // 15 + 50 + 10
+	require.Equal(t, 90, (b2.x+b2.w)-contentLeft) // 50 + 10 + 30
+}
+
+func TestAutoLayoutIgnoreGapBeforeColumn(t *testing.T) {
+	// Column direction, Height==0: auto height should match total main-axis size.
+	// If the second item skips its vertical gap, the total column height decreases by the gap size (10px).
+
+	m1 := newMock("a", 30, 30)
+	m2 := newMock("b", 40, 40)
+
+	style := instructions.ContainerStyle{
+		Display:    instructions.DisplayFlex,
+		Direction:  instructions.Column,
+		Wrap:       false,
+		Padding:    [4]int{5, 5, 5, 5},
+		Gap:        instructions.Vector2{X: 0, Y: 10},
+		Justify:    instructions.JustifyStart,
+		AlignItems: instructions.AlignItemsStart,
+		Width:      200,
+		Height:     0, // auto height
+	}
+
+	// Case 1: normal behavior (no gap ignored)
+	// Content height = 30 + 10 + 40 = 80
+	// Total height including padding = 80 + 5(top) + 5(bottom) = 90
+	al1 := instructions.NewAutoLayout(10, 20, style)
+	al1.Add(m1, instructions.ItemStyle{})
+	al1.Add(m2, instructions.ItemStyle{})
+	base1, overlay1 := newCanvases()
+	al1.Draw(base1, overlay1)
+	sz1 := al1.Size()
+	require.Equal(t, 90.0, sz1.Height())
+
+	// Case 2: second item ignores the gap before itself
+	// Content height = 30 + 0 + 40 = 70
+	// Total height including padding = 70 + 5(top) + 5(bottom) = 80
+	m1b := newMock("a", 30, 30)
+	m2b := newMock("b", 40, 40)
+	al2 := instructions.NewAutoLayout(10, 20, style)
+	al2.Add(m1b, instructions.ItemStyle{})
+	al2.Add(m2b, instructions.ItemStyle{IgnoreGapBefore: true})
+	base2, overlay2 := newCanvases()
+	al2.Draw(base2, overlay2)
+	sz2 := al2.Size()
+	require.Equal(t, 80.0, sz2.Height())
+
+	// Position check: the second item must be placed directly after the first one (no 10px gap)
+	require.Equal(t, 25, m1b.y) // 10 + 5 + 10 = 25 (container origin + padding)
+	require.Equal(t, 55, m2b.y) // 25 + 30 = 55 (no gap applied)
 }
