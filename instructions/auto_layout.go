@@ -2,6 +2,7 @@ package instructions
 
 import (
 	"image"
+	"math"
 	"sort"
 
 	"github.com/Krispeckt/glimo/internal/core/geom"
@@ -71,7 +72,7 @@ type ContainerStyle struct {
 	Gap           Vector2 // gap.X = horizontal spacing, gap.Y = vertical spacing
 	Justify       JustifyContent
 	AlignItems    AlignItems
-	AlignContent  AlignItems // reserved for multi-line cross-axis packing
+	AlignContent  AlignItems // cross-axis packing for multiple lines: Start/Center/End/Stretch
 	Width, Height int        // container dimensions; 0 = auto by content
 }
 
@@ -107,6 +108,18 @@ type node struct {
 	w, h  int // computed width and height
 }
 
+// Resizable is an optional capability. If implemented by a shape,
+// AutoLayout will pass the resolved width and height to the shape.
+type Resizable interface {
+	SetSize(w, h int)
+}
+
+// Boundable is an optional capability. If implemented by a shape,
+// AutoLayout will pass the resolved position and size in one call.
+type Boundable interface {
+	SetBounds(x, y, w, h int)
+}
+
 // AutoLayout represents a flexible container that arranges child shapes
 // according to flex layout rules and draws them to an overlay image.
 //
@@ -116,6 +129,7 @@ type AutoLayout struct {
 	style    ContainerStyle
 	children []*node
 	w, h     int
+	dirty    bool // marks layout as invalidated
 }
 
 // NewAutoLayout constructs a new flex container anchored at (x, y).
@@ -124,7 +138,7 @@ func NewAutoLayout(x, y int, style ContainerStyle) *AutoLayout {
 	if style.Display != DisplayFlex {
 		style.Display = DisplayFlex
 	}
-	return &AutoLayout{x: x, y: y, style: style}
+	return &AutoLayout{x: x, y: y, style: style, dirty: true}
 }
 
 // Add registers a child Shape with an optional layout style.
@@ -137,21 +151,35 @@ func (al *AutoLayout) Add(s Shape, st ItemStyle) *AutoLayout {
 		n.pos = bs
 	}
 	al.children = append(al.children, n)
+	al.w, al.h = 0, 0
+	al.dirty = true
 	return al
 }
 
-// Size returns the current outer dimensions of the AutoLayout container
-// as a *geom.Size, including padding on all sides.
-func (al *AutoLayout) Size() *geom.Size {
-	if al.w == 0 && al.h == 0 {
-		isRow := al.style.Direction == Row
-
-		innerW, innerH, _, _, _, _ := al.computeInner(isRow)
-		ptop, pright, pbottom, pleft := sum4(al.style.Padding)
-		al.w = innerW + pleft + pright
-		al.h = innerH + ptop + pbottom
+// SetStyle replaces the container style and invalidates the current layout.
+func (al *AutoLayout) SetStyle(style ContainerStyle) {
+	if style.Display != DisplayFlex {
+		style.Display = DisplayFlex
 	}
+	al.style = style
+	al.w, al.h = 0, 0
+	al.dirty = true
+}
+
+// Size returns the current outer dimensions of the AutoLayout container
+// as a *geom.Size, including padding on all sides. If the layout is dirty,
+// it is recomputed.
+func (al *AutoLayout) Size() *geom.Size {
+	al.ensureLayout()
 	return geom.NewSize(float64(al.w), float64(al.h))
+}
+
+// ensureLayout computes a fresh layout if it is marked dirty or empty.
+func (al *AutoLayout) ensureLayout() {
+	if al.dirty || (al.w == 0 && al.h == 0) {
+		al.layoutFlex()
+		al.dirty = false
+	}
 }
 
 // sum4 expands a 4-value margin or padding array into its components:
@@ -163,7 +191,8 @@ func sum4(a [4]int) (t, r, b, l int) { return a[0], a[1], a[2], a[3] }
 func naturalSize(n *node) (w, h int) {
 	if n.meas != nil {
 		size := n.meas.Size()
-		w, h = int(size.Width()), int(size.Height())
+		w = int(math.Round(size.Width()))
+		h = int(math.Round(size.Height()))
 	}
 	if n.st.Width > 0 {
 		w = n.st.Width
@@ -221,30 +250,30 @@ func resolveCrossSize(n *node, isRow bool, nw, nh int) int {
 // line groups items that belong to the same row or column when wrapping.
 type line struct {
 	items []*node
-	base  int // total main-axis length (including margins)
-	cross int // maximum cross-axis length
+	base  int // total main-axis length (including margins; gaps are not required here)
+	cross int // maximum cross-axis length (including margins)
 }
 
 // computeInner calculates container content dimensions (inner width/height)
-// and returns padding offsets and gap spacing. Auto-sizing is resolved here.
+// and returns padding offsets and gap spacing. Auto-sizing is resolved here
+// only as an estimate. Exact auto cross-size for wrapped content is resolved
+// later in layoutFlex after lines are built.
 func (al *AutoLayout) computeInner(isRow bool) (innerW, innerH, pl, pt, gx, gy int) {
 	cs := al.style
 
-	// Estimate content size from children.
+	// Estimate content size from children in a single line.
 	natMain, natCross := 0, 0
+	count := 0
 	for _, n := range al.children {
-		if n.meas == nil {
+		if n.st.Position == PosAbsolute {
 			continue
 		}
-		w, h := naturalSize(n)
-		mt, mr, mb, ml := sum4(n.st.Margin)
-		main := w + ml + mr
-		cross := h + mt + mb
-		if !isRow {
-			main, cross = h+mt+mb, w+ml+mr
+		baseMain, baseCross := baseMainCross(n, isRow)
+		natMain += baseMain
+		if baseCross > natCross {
+			natCross = baseCross
 		}
-		natMain += main
-		natCross = geom.MaxInt(natCross, cross)
+		count++
 	}
 
 	// Padding and gap.
@@ -255,7 +284,10 @@ func (al *AutoLayout) computeInner(isRow bool) (innerW, innerH, pl, pt, gx, gy i
 	if cs.Width > 0 {
 		innerW = cs.Width - pl - pr
 	} else if isRow {
-		innerW = natMain + gx*geom.MaxInt(0, len(al.children)-1)
+		innerW = natMain
+		if count > 1 {
+			innerW += gx * (count - 1)
+		}
 	} else {
 		innerW = natCross
 	}
@@ -264,8 +296,12 @@ func (al *AutoLayout) computeInner(isRow bool) (innerW, innerH, pl, pt, gx, gy i
 	} else if isRow {
 		innerH = natCross
 	} else {
-		innerH = natMain + gy*geom.MaxInt(0, len(al.children)-1)
+		innerH = natMain
+		if count > 1 {
+			innerH += gy * (count - 1)
+		}
 	}
+
 	if innerW < 0 {
 		innerW = 0
 	}
@@ -294,6 +330,7 @@ func (al *AutoLayout) buildLines(isRow bool, mainLimit, gx, gy int) []line {
 		}
 		baseMain, baseCross := baseMainCross(n, isRow)
 
+		// Compute current line length if we append this item, including fixed gaps.
 		itemWithGap := baseMain
 		if len(cur.items) > 0 {
 			if isRow {
@@ -302,9 +339,13 @@ func (al *AutoLayout) buildLines(isRow bool, mainLimit, gx, gy int) []line {
 				itemWithGap += gy
 			}
 		}
+
+		// Wrap if enabled and limit exceeded.
 		if al.style.Wrap && len(cur.items) > 0 && cur.base+itemWithGap > mainLimit {
 			push()
 		}
+
+		// Accumulate.
 		if len(cur.items) > 0 {
 			if isRow {
 				cur.base += gx
@@ -323,167 +364,326 @@ func (al *AutoLayout) buildLines(isRow bool, mainLimit, gx, gy int) []line {
 }
 
 // placeLines assigns coordinates and sizes to all nodes within the computed lines,
-// handling justify, align, flex grow/shrink, and stretch logic.
+// handling justify, align, flex grow/shrink, line distribution, and stretch logic.
 func (al *AutoLayout) placeLines(lines []line, isRow bool, innerW, innerH, pl, pt, gx, gy int) {
 	cs := al.style
+
 	mainLimit := innerW
+	crossLimit := innerH
+	gapMain := gx
+	gapCross := gy
 	if !isRow {
 		mainLimit = innerH
+		crossLimit = innerW
+		gapMain = gy
+		gapCross = gx
 	}
 
-	crossOffset := 0
+	// Cross-axis distribution across multiple lines (AlignContent).
+	// Supported values: Start, Center, End, Stretch.
+	totalCross := 0
+	if len(lines) > 0 {
+		for _, ln := range lines {
+			totalCross += ln.cross
+		}
+		totalCross += gapCross * (len(lines) - 1)
+	}
+	leftoverCross := crossLimit - totalCross
+	if leftoverCross < 0 {
+		leftoverCross = 0
+	}
+	crossStartOffset := 0
+	extraPerLine := 0
+	switch cs.AlignContent {
+	case AlignItemsCenter:
+		crossStartOffset = leftoverCross / 2
+	case AlignItemsEnd:
+		crossStartOffset = leftoverCross
+	case AlignItemsStretch:
+		if len(lines) > 0 && leftoverCross > 0 {
+			extraPerLine = leftoverCross / len(lines)
+		}
+	default: // Start
+	}
+
+	crossOffset := crossStartOffset
+
 	for li := range lines {
 		ln := &lines[li]
-		free := mainLimit - ln.base
 
-		// Compute grow/shrink totals for proportional space distribution.
-		gapMain := gx
-		if !isRow {
-			gapMain = gy
+		// Precompute base sizes and factors per item.
+		type itemRec struct {
+			n                *node
+			baseMainContent  int // without margins
+			baseMainWithMarg int // with margins
+			mt, mr, mb, ml   int
+			nw, nh           int
+			sizeMainContent  int // resolved main size without margins
+			sizeCross        int // resolved cross size without margins
+			align            AlignItems
 		}
-		totalGaps := 0
-		if len(ln.items) > 1 {
-			totalGaps = (len(ln.items) - 1) * gapMain
-		}
-		flexFree := free - totalGaps
-
+		recs := make([]itemRec, 0, len(ln.items))
 		var totalGrow, totalShrink float64
+		sumBaseWithMargins := 0
+
 		for _, n := range ln.items {
-			totalGrow += n.st.FlexGrow
-			if flexFree < 0 {
-				if n.st.FlexShrink == 0 {
-					totalShrink += 1
+			nw, nh := naturalSize(n)
+			mt, mr, mb, ml := sum4(n.st.Margin)
+
+			// Base main content size (no margins).
+			var baseMainContent int
+			if isRow {
+				if n.st.FlexBasis > 0 {
+					baseMainContent = n.st.FlexBasis
+				} else if n.st.Width > 0 {
+					baseMainContent = n.st.Width
 				} else {
-					totalShrink += n.st.FlexShrink
+					baseMainContent = nw
 				}
+			} else {
+				if n.st.FlexBasis > 0 {
+					baseMainContent = n.st.FlexBasis
+				} else if n.st.Height > 0 {
+					baseMainContent = n.st.Height
+				} else {
+					baseMainContent = nh
+				}
+			}
+
+			baseWithMargins := baseMainContent
+			if isRow {
+				baseWithMargins += ml + mr
+			} else {
+				baseWithMargins += mt + mb
+			}
+			sumBaseWithMargins += baseWithMargins
+
+			rec := itemRec{
+				n:                n,
+				baseMainContent:  baseMainContent,
+				baseMainWithMarg: baseWithMargins,
+				mt:               mt, mr: mr, mb: mb, ml: ml,
+				nw: nw, nh: nh,
+				align: func() AlignItems {
+					if n.st.AlignSelf != nil {
+						return *n.st.AlignSelf
+					}
+					return cs.AlignItems
+				}(),
+			}
+			recs = append(recs, rec)
+
+			// Flex factors.
+			totalGrow += n.st.FlexGrow
+			if n.st.FlexShrink == 0 {
+				totalShrink += 1
 			} else {
 				totalShrink += n.st.FlexShrink
 			}
 		}
 
-		// JustifyContent offset and inter-item spacing.
-		offset, space := 0, 0
+		totalGaps := 0
+		if len(recs) > 1 {
+			totalGaps = gapMain * (len(recs) - 1)
+		}
+		// Free space available for flexing (after margins and fixed gaps).
+		flexFree := mainLimit - sumBaseWithMargins - totalGaps
+
+		// Distribute flex grow/shrink with remainder handling for pixel-perfect totals.
+		switch {
+		case flexFree > 0 && totalGrow > 0:
+			// First pass: floors.
+			floors := make([]int, len(recs))
+			fracs := make([]float64, len(recs))
+			sumFloors := 0
+			for i, r := range recs {
+				share := float64(flexFree) * (r.n.st.FlexGrow / totalGrow)
+				f := int(math.Floor(share))
+				floors[i] = f
+				fracs[i] = share - float64(f)
+				sumFloors += f
+			}
+			rem := flexFree - sumFloors
+			// Assign remainders by descending fractional parts.
+			idx := make([]int, len(recs))
+			for i := range idx {
+				idx[i] = i
+			}
+			sort.Slice(idx, func(i, j int) bool { return fracs[idx[i]] > fracs[idx[j]] })
+			for k := 0; k < rem && k < len(idx); k++ {
+				floors[idx[k]]++
+			}
+			for i := range recs {
+				recs[i].sizeMainContent = recs[i].baseMainContent + floors[i]
+				if recs[i].sizeMainContent < 0 {
+					recs[i].sizeMainContent = 0
+				}
+			}
+
+		case flexFree < 0 && totalShrink > 0:
+			need := -flexFree
+			floors := make([]int, len(recs))
+			fracs := make([]float64, len(recs))
+			sumFloors := 0
+			for i, r := range recs {
+				sh := r.n.st.FlexShrink
+				if sh == 0 {
+					sh = 1
+				}
+				share := float64(need) * (sh / totalShrink)
+				f := int(math.Floor(share))
+				floors[i] = f
+				fracs[i] = share - float64(f)
+				sumFloors += f
+			}
+			rem := need - sumFloors
+			idx := make([]int, len(recs))
+			for i := range idx {
+				idx[i] = i
+			}
+			sort.Slice(idx, func(i, j int) bool { return fracs[idx[i]] > fracs[idx[j]] })
+			for k := 0; k < rem && k < len(idx); k++ {
+				floors[idx[k]]++
+			}
+			for i := range recs {
+				recs[i].sizeMainContent = recs[i].baseMainContent - floors[i]
+				if recs[i].sizeMainContent < 0 {
+					recs[i].sizeMainContent = 0
+				}
+			}
+		default:
+			for i := range recs {
+				recs[i].sizeMainContent = recs[i].baseMainContent
+			}
+		}
+
+		// After flexing, recompute remaining free space for justify-content.
+		used := 0
+		for _, r := range recs {
+			if isRow {
+				used += r.sizeMainContent + r.ml + r.mr
+			} else {
+				used += r.sizeMainContent + r.mt + r.mb
+			}
+		}
+		used += totalGaps
+		remaining := mainLimit - used
+		if remaining < 0 {
+			remaining = 0
+		}
+
+		// JustifyContent offset and extra spacing.
+		offset, extra := 0, 0
 		switch cs.Justify {
 		case JustifyStart:
 			offset = 0
 		case JustifyCenter:
-			if free > 0 {
-				offset = free / 2
-			}
+			offset = remaining / 2
 		case JustifyEnd:
-			if free > 0 {
-				offset = free
-			}
+			offset = remaining
 		case JustifySpaceBetween:
-			if free > 0 && len(ln.items) > 1 {
-				space = free / (len(ln.items) - 1)
+			if len(recs) > 1 {
+				extra = remaining / (len(recs) - 1)
 			}
 		case JustifySpaceAround:
-			if free > 0 && len(ln.items) > 0 {
-				space = free / len(ln.items)
-				offset = space / 2
+			if len(recs) > 0 {
+				extra = remaining / len(recs)
+				offset = extra / 2
 			}
 		case JustifySpaceEvenly:
-			if free > 0 && len(ln.items) > 0 {
-				space = free / (len(ln.items) + 1)
-				offset = space
+			if len(recs) > 0 {
+				extra = remaining / (len(recs) + 1)
+				offset = extra
 			}
 		}
 
+		// Resolve cross sizes and positions per item.
+		lineCrossSize := ln.cross + extraPerLine
 		mainCursor := offset
-		for idx, n := range ln.items {
-			nw, nh := naturalSize(n)
-			mt, mr, mb, ml := sum4(n.st.Margin)
 
-			// Base size along main axis
-			var baseMain int
-			if isRow {
-				if n.st.FlexBasis > 0 {
-					baseMain = n.st.FlexBasis
-				} else if n.st.Width > 0 {
-					baseMain = n.st.Width
-				} else {
-					baseMain = nw
-				}
-			} else {
-				if n.st.FlexBasis > 0 {
-					baseMain = n.st.FlexBasis
-				} else if n.st.Height > 0 {
-					baseMain = n.st.Height
-				} else {
-					baseMain = nh
-				}
-			}
-
-			// Apply flex grow/shrink adjustments.
-			sizeMain := baseMain
-			if flexFree > 0 && totalGrow > 0 {
-				sizeMain += int(float64(flexFree) * (n.st.FlexGrow / totalGrow))
-			} else if flexFree < 0 && totalShrink > 0 {
-				sh := n.st.FlexShrink
-				if sh == 0 {
-					sh = 1
-				}
-				sizeMain += int(float64(flexFree) * (sh / totalShrink))
-				if sizeMain < 0 {
-					sizeMain = 0
-				}
-			}
-
-			// Cross-axis sizing and alignment.
-			sizeCross := resolveCrossSize(n, isRow, nw, nh)
-			align := cs.AlignItems
-			if n.st.AlignSelf != nil {
-				align = *n.st.AlignSelf
-			}
-			crossPos := 0
-			switch align {
-			case AlignItemsStart:
-				crossPos = mt
-			case AlignItemsCenter:
-				crossPos = (ln.cross-sizeCross-(mt+mb))/2 + mt
-			case AlignItemsEnd:
-				crossPos = ln.cross - sizeCross - mb
+		for idx, r := range recs {
+			// Cross sizing.
+			sizeCross := resolveCrossSize(r.n, isRow, r.nw, r.nh)
+			switch r.align {
 			case AlignItemsStretch:
-				sizeCross = geom.MaxInt(1, ln.cross-(mt+mb))
-				crossPos = mt
+				// Fill line's cross size minus vertical/horizontal margins.
+				if isRow {
+					sizeCross = geom.MaxInt(1, lineCrossSize-(r.mt+r.mb))
+				} else {
+					sizeCross = geom.MaxInt(1, lineCrossSize-(r.ml+r.mr))
+				}
+			}
+
+			// Cross position inside line.
+			crossPos := 0
+			switch r.align {
+			case AlignItemsStart:
+				if isRow {
+					crossPos = r.mt
+				} else {
+					crossPos = r.ml
+				}
+			case AlignItemsCenter:
+				if isRow {
+					crossPos = (lineCrossSize-sizeCross-(r.mt+r.mb))/2 + r.mt
+				} else {
+					crossPos = (lineCrossSize-sizeCross-(r.ml+r.mr))/2 + r.ml
+				}
+			case AlignItemsEnd:
+				if isRow {
+					crossPos = lineCrossSize - sizeCross - r.mb
+				} else {
+					crossPos = lineCrossSize - sizeCross - r.mr
+				}
+			case AlignItemsStretch:
+				if isRow {
+					crossPos = r.mt
+				} else {
+					crossPos = r.ml
+				}
 			}
 
 			// Final coordinates in container space.
 			if isRow {
-				n.x = al.x + pl + mainCursor + ml
-				n.y = al.y + pt + crossOffset + crossPos
-				n.w = sizeMain
-				n.h = sizeCross
+				x := al.x + pl + mainCursor + r.ml
+				y := al.y + pt + crossOffset + crossPos
+				w := r.sizeMainContent
+				h := sizeCross
 
-				mainCursor += sizeMain + ml + mr
-				if idx < len(ln.items)-1 {
-					mainCursor += gx + space
+				r.n.x, r.n.y = x, y
+				r.n.w, r.n.h = w, h
+
+				mainCursor += r.sizeMainContent + r.ml + r.mr
+				if idx < len(recs)-1 {
+					mainCursor += gx + extra
 				}
 			} else {
-				n.x = al.x + pl + crossOffset + crossPos
-				n.y = al.y + pt + mainCursor + mt
-				n.w = sizeCross
-				n.h = sizeMain
+				x := al.x + pl + crossOffset + crossPos
+				y := al.y + pt + mainCursor + r.mt
+				w := sizeCross
+				h := r.sizeMainContent
 
-				mainCursor += sizeMain + mt + mb
-				if idx < len(ln.items)-1 {
-					mainCursor += gy + space
+				r.n.x, r.n.y = x, y
+				r.n.w, r.n.h = w, h
+
+				mainCursor += r.sizeMainContent + r.mt + r.mb
+				if idx < len(recs)-1 {
+					mainCursor += gy + extra
 				}
 			}
 		}
 
 		// Move to next line.
 		if isRow {
-			crossOffset += ln.cross + gy
+			crossOffset += lineCrossSize + gapCross
 		} else {
-			crossOffset += ln.cross + gx
+			crossOffset += lineCrossSize + gapCross
 		}
 	}
 }
 
 // positionAbsolute sets coordinates for out-of-flow elements (PosAbsolute)
-// relative to the container’s padding box.
+// relative to the container’s padding box. Margins are honored.
 func (al *AutoLayout) positionAbsolute(innerW, innerH, pl, pt int) {
 	for _, n := range al.children {
 		if n.st.Position != PosAbsolute {
@@ -492,6 +692,8 @@ func (al *AutoLayout) positionAbsolute(innerW, innerH, pl, pt int) {
 		w, h := naturalSize(n)
 		n.w, n.h = w, h
 
+		mt, mr, mb, ml := sum4(n.st.Margin)
+
 		cx0 := al.x + pl
 		cy0 := al.y + pt
 		cx1 := cx0 + innerW
@@ -499,14 +701,14 @@ func (al *AutoLayout) positionAbsolute(innerW, innerH, pl, pt int) {
 
 		x, y := cx0, cy0
 		if n.st.Left != nil {
-			x = cx0 + *n.st.Left
+			x = cx0 + *n.st.Left + ml
 		} else if n.st.Right != nil {
-			x = cx1 - *n.st.Right - n.w
+			x = cx1 - *n.st.Right - n.w - mr
 		}
 		if n.st.Top != nil {
-			y = cy0 + *n.st.Top
+			y = cy0 + *n.st.Top + mt
 		} else if n.st.Bottom != nil {
-			y = cy1 - *n.st.Bottom - n.h
+			y = cy1 - *n.st.Bottom - n.h - mb
 		}
 		n.x, n.y = x, y
 	}
@@ -525,6 +727,31 @@ func (al *AutoLayout) layoutFlex() (innerW, innerH int) {
 	}
 
 	lines := al.buildLines(isRow, mainLimit, gx, gy)
+
+	// Auto cross-size resolution for wrapped content:
+	// - Row + auto Height: sum of line cross-sizes plus cross gaps
+	// - Column + auto Width: sum of line cross-sizes plus cross gaps
+	if al.style.Height == 0 && isRow {
+		sum := 0
+		for i, ln := range lines {
+			sum += ln.cross
+			if i < len(lines)-1 {
+				sum += gy
+			}
+		}
+		innerH = sum
+	}
+	if al.style.Width == 0 && !isRow {
+		sum := 0
+		for i, ln := range lines {
+			sum += ln.cross
+			if i < len(lines)-1 {
+				sum += gx
+			}
+		}
+		innerW = sum
+	}
+
 	al.placeLines(lines, isRow, innerW, innerH, pl, pt, gx, gy)
 	al.positionAbsolute(innerW, innerH, pl, pt)
 
@@ -537,15 +764,24 @@ func (al *AutoLayout) layoutFlex() (innerW, innerH int) {
 
 // Draw performs layout, sorts children by ZIndex, and draws each one in order.
 // Shapes that implement BoundedShape receive updated coordinates via SetPosition
-// before drawing.
+// before drawing. If a shape implements Resizable or Boundable, its size is
+// also propagated.
 func (al *AutoLayout) Draw(base, overlay *image.RGBA) {
-	al.layoutFlex()
+	al.ensureLayout()
 	sort.SliceStable(al.children, func(i, j int) bool {
 		return al.children[i].st.ZIndex < al.children[j].st.ZIndex
 	})
 	for _, n := range al.children {
-		if n.pos != nil {
-			n.pos.SetPosition(n.x, n.y)
+		// Propagate resolved bounds to the shape if supported.
+		if b, ok := n.shape.(Boundable); ok {
+			b.SetBounds(n.x, n.y, n.w, n.h)
+		} else {
+			if n.pos != nil {
+				n.pos.SetPosition(n.x, n.y)
+			}
+			if rs, ok := n.shape.(Resizable); ok {
+				rs.SetSize(n.w, n.h)
+			}
 		}
 		n.shape.Draw(base, overlay)
 	}

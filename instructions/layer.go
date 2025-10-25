@@ -102,6 +102,66 @@ func (l *Layer) SetPositionChain(x, y int) *Layer {
 	return l
 }
 
+// SetSize adjusts the Layer's visible bounds to the requested width and height
+// without resampling or reallocating pixels. The bounds are clamped to the
+// current backing buffer capacity to avoid expansion. Content is not modified.
+func (l *Layer) SetSize(w, h int) {
+	if l == nil || l.image == nil {
+		return
+	}
+	if w < 0 {
+		w = 0
+	}
+	if h < 0 {
+		h = 0
+	}
+	// Compute maximum representable width/height for the current Pix/Stride.
+	maxW := 0
+	if l.image.Stride > 0 {
+		maxW = l.image.Stride / 4 // 4 bytes per pixel in RGBA
+	}
+	maxH := 0
+	if l.image.Stride > 0 {
+		maxH = len(l.image.Pix) / l.image.Stride
+	}
+
+	if w > maxW {
+		w = maxW
+	}
+	if h > maxH {
+		h = maxH
+	}
+
+	min := l.image.Rect.Min
+	l.image.Rect = image.Rectangle{
+		Min: min,
+		Max: image.Pt(min.X+w, min.Y+h),
+	}
+	l.size = geom.NewSize(float64(w), float64(h))
+}
+
+// SetSizeChain sets the visible bounds to width and height and returns the Layer.
+// Identical to SetSize but chainable.
+func (l *Layer) SetSizeChain(w, h int) *Layer {
+	l.SetSize(w, h)
+	return l
+}
+
+// SetBounds sets the Layer’s position and visible bounds. The size change
+// is clamped to the current buffer capacity and does not resample or
+// reallocate pixels. Only the bounds are adjusted; content stays intact.
+func (l *Layer) SetBounds(x, y, width, height int) {
+	l.x, l.y = x, y
+	l.SetSize(width, height)
+}
+
+// SetBoundsChain sets position and size, clamps size to buffer limits, and returns the Layer.
+// Identical to SetBounds but chainable.
+func (l *Layer) SetBoundsChain(x, y, width, height int) *Layer {
+	l.SetBounds(x, y, width, height)
+	return l
+}
+
 // Draw renders this Layer’s contents onto another base and overlay image.
 //
 // The method composites the layer’s RGBA data into the overlay image at
