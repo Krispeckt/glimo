@@ -1,17 +1,19 @@
 package colors
 
 import (
+	"image"
+
 	"github.com/Krispeckt/glimo/internal/core/image/patterns"
 )
 
 //
 // Package Overview
 //
-// The `colors` package provides a simplified, user-friendly interface for creating and
-// manipulating color and pattern objects from the internal `patterns` package.
+// The `colors` package provides a high-level interface for constructing and composing
+// color and pattern objects from the internal `patterns` package.
 //
-// It re-exports gradient constructors, solid fills, surfaces, and blending modes,
-// allowing developers to use them directly under `colors.*` without referencing subpackages.
+// It exposes the main gradient, surface, and blending abstractions directly under
+// the `colors` namespace, allowing concise and readable use in client code.
 //
 
 // Transparent represents a fully transparent color (0, 0, 0, 0).
@@ -20,122 +22,163 @@ var Transparent = RGBA(0, 0, 0, 0)
 //
 // Type Aliases
 //
-// These aliases expose key types from the `patterns` package directly under the `colors` namespace.
+// These aliases re-export key types from `patterns` for simplified access.
 //
 
 type (
-	// Pattern defines a drawable color source with a ColorAt(x, y) method.
+	// Pattern defines any drawable color source capable of returning a color at (x, y).
 	Pattern = patterns.Pattern
-	// BlendedPattern extends Pattern with blend mode and opacity support.
+	// BlendedPattern extends Pattern with blending mode and opacity support.
 	BlendedPattern = patterns.BlendedPattern
-	// GradientPattern defines a common interface for gradient types (linear, radial, conic).
+	// GradientPattern defines the interface common to all gradient types.
 	GradientPattern = patterns.GradientPattern
 
-	// ConicGradient represents an angular gradient centered at (cx, cy).
+	// ConicGradient represents a gradient that varies angularly around a center point.
 	ConicGradient = patterns.ConicGradient
-	// LinearGradient represents a linear gradient between two points.
+	// LinearGradient represents a gradient that transitions linearly between two points.
 	LinearGradient = patterns.LinearGradient
-	// RadialGradient represents a radial gradient between two circles.
+	// RadialGradient represents a gradient that transitions between two circular regions.
 	RadialGradient = patterns.RadialGradient
-	// Solid represents a solid color fill.
+	// Solid represents a constant color fill.
 	Solid = patterns.Solid
-	// Surface represents an image-based pattern (texture) with repetition options.
+	// Surface represents an image-based pattern that can be repeated or clamped.
 	Surface = patterns.Surface
 )
 
 //
 // Gradient Constructors
 //
-// These are direct aliases to the gradient creation functions from `patterns`.
+// These functions provide direct access to the gradient creation logic
+// from the `patterns` package.
 //
 
-var (
-	NewConicGradient          = patterns.NewConicGradient
-	NewConicGradientWithBlend = patterns.NewConicGradientWithBlend
+// NewConicGradient creates a new conic gradient centered at (cx, cy),
+// starting from the given angular offset in degrees.
+func NewConicGradient(cx, cy, deg float64) *patterns.ConicGradient {
+	return patterns.NewConicGradient(cx, cy, deg)
+}
 
-	NewLinearGradient          = patterns.NewLinearGradient
-	NewLinearGradientWithBlend = patterns.NewLinearGradientWithBlend
+// NewConicGradientWithBlend creates a conic gradient with a blend mode and opacity.
+func NewConicGradientWithBlend(cx, cy, deg float64, blend patterns.BlendMode, opacity float64) *patterns.ConicGradient {
+	return patterns.NewConicGradientWithBlend(cx, cy, deg, blend, opacity)
+}
 
-	NewRadialGradient          = patterns.NewRadialGradient
-	NewRadialGradientWithBlend = patterns.NewRadialGradientWithBlend
+// NewLinearGradient creates a new linear gradient between (x0, y0) and (x1, y1).
+func NewLinearGradient(x0, y0, x1, y1 float64) *patterns.LinearGradient {
+	return patterns.NewLinearGradient(x0, y0, x1, y1)
+}
 
-	NewSolid          = patterns.NewSolid
-	NewSolidWithBlend = patterns.NewSolidWithBlend
+// NewLinearGradientWithBlend creates a linear gradient with a specific blend mode and opacity.
+func NewLinearGradientWithBlend(x0, y0, x1, y1 float64, blend patterns.BlendMode, opacity float64) *patterns.LinearGradient {
+	return patterns.NewLinearGradientWithBlend(x0, y0, x1, y1, blend, opacity)
+}
 
-	NewSurface          = patterns.NewSurface
-	NewSurfaceWithBlend = patterns.NewSurfaceWithBlend
-)
+// NewRadialGradient creates a new radial gradient between two circular regions.
+func NewRadialGradient(cx0, cy0, r0, cx1, cy1, r1 float64) *patterns.RadialGradient {
+	return patterns.NewRadialGradient(cx0, cy0, r0, cx1, cy1, r1)
+}
+
+// NewRadialGradientWithBlend creates a radial gradient with blending and opacity control.
+func NewRadialGradientWithBlend(cx0, cy0, r0, cx1, cy1, r1 float64, blend patterns.BlendMode, opacity float64) *patterns.RadialGradient {
+	return patterns.NewRadialGradientWithBlend(cx0, cy0, r0, cx1, cy1, r1, blend, opacity)
+}
+
+// NewSolid creates a solid fill using the given color.
+func NewSolid(c patterns.Color) *patterns.Solid {
+	return patterns.NewSolid(c)
+}
+
+// NewSolidWithBlend creates a solid fill with a specified blend mode and opacity.
+func NewSolidWithBlend(c patterns.Color, blend patterns.BlendMode, opacity float64) *patterns.Solid {
+	return patterns.NewSolidWithBlend(c, blend, opacity)
+}
+
+// NewSurface creates an image-based pattern with a specified repetition mode.
+func NewSurface(img image.Image, repeat patterns.RepeatOp) *patterns.Surface {
+	return patterns.NewSurface(img, repeat)
+}
+
+// NewSurfaceWithBlend creates an image-based pattern with repetition, blending, and opacity options.
+func NewSurfaceWithBlend(img image.Image, repeat patterns.RepeatOp, blend patterns.BlendMode, opacity float64) *patterns.Surface {
+	return patterns.NewSurfaceWithBlend(img, repeat, blend, opacity)
+}
 
 //
 // Color Constructors
 //
-// Provides convenient color creation utilities compatible with the rest of the API.
+// These helper functions simplify the creation of Color objects
+// compatible with the rest of the rendering system.
 //
 
-// RGBA creates a new color from red, green, blue, and alpha components (0–255 each).
+// RGBA constructs a Color from red, green, blue, and alpha components (0–255 each).
 func RGBA(r, g, b, a uint8) patterns.Color {
 	return patterns.Color{R: r, G: g, B: b, A: a}
 }
 
-// RGB creates a new fully opaque color from red, green, and blue components (0–255 each).
+// RGB constructs a fully opaque Color from red, green, and blue components (0–255 each).
 func RGB(r, g, b uint8) patterns.Color {
 	return patterns.Color{R: r, G: g, B: b, A: 255}
 }
 
-// HEX parses a hexadecimal color string (e.g. "#RRGGBB" or "#RRGGBBAA") into a Color.
-var HEX = patterns.ColorFromHex
+// HEX parses a hexadecimal color string (e.g. "#RRGGBB" or "#RRGGBBAA") into a Color object.
+func HEX(hex string) (patterns.Color, error) {
+	return patterns.ColorFromHex(hex)
+}
 
-// HSL constructs a Color from hue, saturation, and lightness values, plus an alpha channel.
-var HSL = patterns.ColorFromHSL
+// HSL constructs a Color from hue, saturation, and lightness values.
+// The resulting color is fully opaque.
+func HSL(h, s, l float64) patterns.Color {
+	return patterns.ColorFromHSL(h, s, l, 255)
+}
 
 //
 // Surface Repetition Modes
 //
-// Defines how image-based patterns (Surface) repeat or clamp along the X and Y axes.
+// These constants define how image-based patterns repeat along the X and Y axes.
 //
 
 type SurfaceRepeatOp = patterns.RepeatOp
 
-var (
+const (
 	// SurfaceRepeatBoth repeats the image in both directions.
-	SurfaceRepeatBoth = patterns.RepeatBoth
-	// SurfaceRepeatX repeats only along the X axis.
-	SurfaceRepeatX = patterns.RepeatX
-	// SurfaceRepeatY repeats only along the Y axis.
-	SurfaceRepeatY = patterns.RepeatY
-	// SurfaceRepeatNone disables repetition; pixels outside the image bounds are transparent.
-	SurfaceRepeatNone = patterns.RepeatNone
+	SurfaceRepeatBoth SurfaceRepeatOp = patterns.RepeatBoth
+	// SurfaceRepeatX repeats the image only along the X axis.
+	SurfaceRepeatX SurfaceRepeatOp = patterns.RepeatX
+	// SurfaceRepeatY repeats the image only along the Y axis.
+	SurfaceRepeatY SurfaceRepeatOp = patterns.RepeatY
+	// SurfaceRepeatNone disables repetition and makes out-of-bounds pixels transparent.
+	SurfaceRepeatNone SurfaceRepeatOp = patterns.RepeatNone
 )
 
 //
 // Blend Modes
 //
-// Defines how colors and patterns interact visually when composited.
-// These correspond to standard CSS and digital compositing blend modes.
+// Blend modes define how colors and patterns combine visually when composited.
+// They follow conventions from digital compositing and CSS blending specifications.
 //
 
 type BlendMode = patterns.BlendMode
 
-var (
-	BlendPassThrough = patterns.BlendPassThrough // disables blending, passes color as-is
-	BlendNormal      = patterns.BlendNormal      // normal (source over destination)
-	BlendDarken      = patterns.BlendDarken      // selects darker pixels
-	BlendMultiply    = patterns.BlendMultiply    // multiplies source and destination
-	BlendPlusDarker  = patterns.BlendPlusDarker  // linear burn
-	BlendColorBurn   = patterns.BlendColorBurn   // darkens by increasing contrast
-	BlendLighten     = patterns.BlendLighten     // selects lighter pixels
-	BlendScreen      = patterns.BlendScreen      // inverse of multiply
-	BlendPlusLighter = patterns.BlendPlusLighter // linear dodge
-	BlendColorDodge  = patterns.BlendColorDodge  // brightens by decreasing contrast
-	BlendOverlay     = patterns.BlendOverlay     // combines multiply/screen based on lightness
-	BlendSoftLight   = patterns.BlendSoftLight   // soft contrast-based blend
-	BlendHardLight   = patterns.BlendHardLight   // strong contrast-based blend
-	BlendDifference  = patterns.BlendDifference  // subtracts darker values
-	BlendExclusion   = patterns.BlendExclusion   // softer version of difference
-	BlendHue         = patterns.BlendHue         // applies source hue, keeps destination luminance/saturation
-	BlendSaturation  = patterns.BlendSaturation  // applies source saturation, keeps destination hue/luminance
-	BlendColor       = patterns.BlendColor       // applies source hue/saturation, keeps destination luminance
-	BlendLuminosity  = patterns.BlendLuminosity  // applies source luminance, keeps destination hue/saturation
-	BlendLinearBurn  = patterns.BlendLinearBurn  // alias of PlusDarker
-	BlendLinearDodge = patterns.BlendLinearDodge // alias of PlusLighter
+const (
+	BlendPassThrough BlendMode = patterns.BlendPassThrough // disables blending; uses source color directly
+	BlendNormal      BlendMode = patterns.BlendNormal      // standard source-over-destination compositing
+	BlendDarken      BlendMode = patterns.BlendDarken      // selects darker pixels between layers
+	BlendMultiply    BlendMode = patterns.BlendMultiply    // multiplies source and destination colors
+	BlendPlusDarker  BlendMode = patterns.BlendPlusDarker  // linear burn effect
+	BlendColorBurn   BlendMode = patterns.BlendColorBurn   // darkens by increasing contrast
+	BlendLighten     BlendMode = patterns.BlendLighten     // selects lighter pixels between layers
+	BlendScreen      BlendMode = patterns.BlendScreen      // inverse of multiply (lightens colors)
+	BlendPlusLighter BlendMode = patterns.BlendPlusLighter // linear dodge effect
+	BlendColorDodge  BlendMode = patterns.BlendColorDodge  // brightens by decreasing contrast
+	BlendOverlay     BlendMode = patterns.BlendOverlay     // combines multiply and screen based on lightness
+	BlendSoftLight   BlendMode = patterns.BlendSoftLight   // soft contrast modulation
+	BlendHardLight   BlendMode = patterns.BlendHardLight   // strong contrast modulation
+	BlendDifference  BlendMode = patterns.BlendDifference  // subtracts darker values
+	BlendExclusion   BlendMode = patterns.BlendExclusion   // softens the difference effect
+	BlendHue         BlendMode = patterns.BlendHue         // applies source hue; preserves destination luminance/saturation
+	BlendSaturation  BlendMode = patterns.BlendSaturation  // applies source saturation; preserves destination hue/luminance
+	BlendColor       BlendMode = patterns.BlendColor       // applies source hue/saturation; preserves destination luminance
+	BlendLuminosity  BlendMode = patterns.BlendLuminosity  // applies source luminance; preserves destination hue/saturation
+	BlendLinearBurn  BlendMode = patterns.BlendLinearBurn  // alias for PlusDarker
+	BlendLinearDodge BlendMode = patterns.BlendLinearDodge // alias for PlusLighter
 )

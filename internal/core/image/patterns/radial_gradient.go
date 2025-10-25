@@ -32,7 +32,7 @@ func (g *RadialGradient) Opacity() float64 { return g.opacity }
 // NewRadialGradient creates a new radial gradient defined by two circles:
 // the start circle (x0, y0, r0) and the end circle (x1, y1, r1).
 // Colors transition radially from the inner circle to the outer one.
-func NewRadialGradient(x0, y0, r0, x1, y1, r1 float64) GradientPattern {
+func NewRadialGradient(x0, y0, r0, x1, y1, r1 float64) *RadialGradient {
 	c0 := geom.NewCircle(x0, y0, r0)
 	c1 := geom.NewCircle(x1, y1, r1)
 	cd := geom.NewCircle(x1-x0, y1-y0, r1-r0)
@@ -57,7 +57,7 @@ func NewRadialGradient(x0, y0, r0, x1, y1, r1 float64) GradientPattern {
 
 // NewRadialGradientWithBlend creates a new radial gradient with a specified
 // blend mode and opacity, using the same geometry definition as above.
-func NewRadialGradientWithBlend(x0, y0, r0, x1, y1, r1 float64, mode BlendMode, opacity float64) GradientPattern {
+func NewRadialGradientWithBlend(x0, y0, r0, x1, y1, r1 float64, mode BlendMode, opacity float64) *RadialGradient {
 	c0 := geom.NewCircle(x0, y0, r0)
 	c1 := geom.NewCircle(x1, y1, r1)
 	cd := geom.NewCircle(x1-x0, y1-y0, r1-r0)
