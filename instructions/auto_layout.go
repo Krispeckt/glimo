@@ -97,8 +97,7 @@ type ItemStyle struct {
 	ZIndex int
 
 	// IgnoreGapBefore skips the container gap directly before this item.
-	// This affects line construction, wrapping, and final positioning,
-	// but does not suppress justify-content spacing.
+	// This affects line construction, wrapping, and final positioning.
 	IgnoreGapBefore bool
 }
 
@@ -254,9 +253,10 @@ func resolveCrossSize(n *node, isRow bool, nw, nh int) int {
 
 // line groups items that belong to the same row or column when wrapping.
 type line struct {
-	items []*node
-	base  int // total main-axis length (including margins; fixed gaps added during build)
-	cross int // maximum cross-axis length (including margins)
+	items       []*node
+	base        int // total main-axis length (including margins; fixed gaps added during build)
+	cross       int // maximum cross-axis length (including margins)
+	skippedGaps int // count of ignored container gaps in this line
 }
 
 // computeInner calculates container content dimensions (inner width/height)
@@ -318,11 +318,16 @@ func (al *AutoLayout) computeInner(isRow bool) (innerW, innerH, pl, pt, gx, gy i
 
 // buildLines partitions children into flex lines depending on wrapping and main-axis limits.
 // The gap before an item is skipped if that item's ItemStyle.IgnoreGapBefore is true.
+// If a gap is skipped, the effective main-axis limit for that line is reduced by the gap size.
 func (al *AutoLayout) buildLines(isRow bool, mainLimit, gx, gy int) []line {
 	var (
 		lines []line
 		cur   line
 	)
+	gapMain := gx
+	if !isRow {
+		gapMain = gy
+	}
 	push := func() {
 		if len(cur.items) > 0 {
 			lines = append(lines, cur)
@@ -336,35 +341,35 @@ func (al *AutoLayout) buildLines(isRow bool, mainLimit, gx, gy int) []line {
 		}
 		baseMain, baseCross := baseMainCross(n, isRow)
 
-		// Compute current line length if we append this item, including fixed gaps.
+		// Effective limit accounts for previously skipped gaps in this line.
+		effectiveLimit := mainLimit - cur.skippedGaps*gapMain
+		if effectiveLimit < 0 {
+			effectiveLimit = 0
+		}
+
+		// Compute current line length if we append this item, including fixed gaps unless skipped.
 		itemWithGap := baseMain
-		if len(cur.items) > 0 {
-			if isRow {
-				if !n.st.IgnoreGapBefore {
-					itemWithGap += gx
-				}
-			} else {
-				if !n.st.IgnoreGapBefore {
-					itemWithGap += gy
-				}
-			}
+		addGap := len(cur.items) > 0 && !n.st.IgnoreGapBefore
+		if len(cur.items) > 0 && addGap {
+			itemWithGap += gapMain
 		}
 
 		// Wrap if enabled and limit exceeded.
-		if al.style.Wrap && len(cur.items) > 0 && cur.base+itemWithGap > mainLimit {
+		if al.style.Wrap && len(cur.items) > 0 && cur.base+itemWithGap > effectiveLimit {
 			push()
+			// Recompute effective limit for the new line.
+			effectiveLimit = mainLimit - cur.skippedGaps*gapMain
+			if effectiveLimit < 0 {
+				effectiveLimit = 0
+			}
 		}
 
 		// Accumulate.
 		if len(cur.items) > 0 {
-			if isRow {
-				if !n.st.IgnoreGapBefore {
-					cur.base += gx
-				}
+			if addGap {
+				cur.base += gapMain
 			} else {
-				if !n.st.IgnoreGapBefore {
-					cur.base += gy
-				}
+				cur.skippedGaps++
 			}
 		}
 		cur.items = append(cur.items, n)
@@ -380,7 +385,7 @@ func (al *AutoLayout) buildLines(isRow bool, mainLimit, gx, gy int) []line {
 // placeLines assigns coordinates and sizes to all nodes within the computed lines,
 // handling justify, align, flex grow/shrink, line distribution, and stretch logic.
 // The fixed container gap before an item is skipped if that item's IgnoreGapBefore is true.
-// Justify-content spacing is unaffected by IgnoreGapBefore.
+// For each line, the effective main-axis limit is reduced by the number of skipped gaps.
 func (al *AutoLayout) placeLines(lines []line, isRow bool, innerW, innerH, pl, pt, gx, gy int) {
 	cs := al.style
 
@@ -396,7 +401,6 @@ func (al *AutoLayout) placeLines(lines []line, isRow bool, innerW, innerH, pl, p
 	}
 
 	// Cross-axis distribution across multiple lines (AlignContent).
-	// Supported values: Start, Center, End, Stretch.
 	totalCross := 0
 	if len(lines) > 0 {
 		for _, ln := range lines {
@@ -426,6 +430,12 @@ func (al *AutoLayout) placeLines(lines []line, isRow bool, innerW, innerH, pl, p
 
 	for li := range lines {
 		ln := &lines[li]
+
+		// Line-specific effective main-axis limit after subtracting skipped gaps.
+		effectiveLimit := mainLimit - ln.skippedGaps*gapMain
+		if effectiveLimit < 0 {
+			effectiveLimit = 0
+		}
 
 		// Precompute base sizes and factors per item.
 		type itemRec struct {
@@ -508,10 +518,10 @@ func (al *AutoLayout) placeLines(lines []line, isRow bool, innerW, innerH, pl, p
 			}
 		}
 
-		// Free space available for flexing (after margins and fixed gaps).
-		flexFree := mainLimit - sumBaseWithMargins - totalGaps
+		// Free space available for flexing (after margins and fixed gaps) with adjusted limit.
+		flexFree := effectiveLimit - sumBaseWithMargins - totalGaps
 
-		// Distribute flex grow/shrink with remainder handling for pixel-perfect totals.
+		// Distribute flex grow/shrink with remainder handling.
 		switch {
 		case flexFree > 0 && totalGrow > 0:
 			// First pass: floors.
@@ -589,7 +599,7 @@ func (al *AutoLayout) placeLines(lines []line, isRow bool, innerW, innerH, pl, p
 			}
 		}
 		used += totalGaps
-		remaining := mainLimit - used
+		remaining := effectiveLimit - used
 		if remaining < 0 {
 			remaining = 0
 		}
