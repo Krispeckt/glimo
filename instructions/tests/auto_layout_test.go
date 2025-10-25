@@ -247,10 +247,11 @@ func TestAutoLayoutFlexGrowShrinkRow(t *testing.T) {
 	base, overlay := newCanvases()
 	al.Draw(base, overlay)
 
-	// x(a)=15; x(b)=15+92+10=117
+	// innerW=290; base = 50 + 10 + 50 = 110; free=180
+	// grow: a=1, b=3 => sizes: a=95, b=185
 	require.Equal(t, 15, a.x)
 	require.Equal(t, 25, a.y)
-	require.Equal(t, 117, b.x)
+	require.Equal(t, 120, b.x)
 	require.Equal(t, 25, b.y)
 }
 
