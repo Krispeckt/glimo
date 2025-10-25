@@ -316,3 +316,38 @@ func TestAutoLayoutOutput(t *testing.T) {
 	err := layer.Export("./output/auto_layout.png")
 	require.NoError(t, err, "export failed for auto_layout")
 }
+
+func TestAutoLayoutIgnoreGapBefore(t *testing.T) {
+	// Two items, second skips gap before itself.
+	// innerW = 200 - 5 - 5 = 190
+	// a.width=50, b.width=30
+	// normally: x(a)=15, x(b)=15+50+10=75
+	// with b.IgnoreGapBefore = true => x(b)=15+50=65 (gap skipped)
+	a := newMock("a", 50, 20)
+	b := newMock("b", 30, 20)
+
+	style := instructions.ContainerStyle{
+		Display:    instructions.DisplayFlex,
+		Direction:  instructions.Row,
+		Padding:    [4]int{5, 5, 5, 5},
+		Gap:        instructions.Vector2{X: 10, Y: 0},
+		Justify:    instructions.JustifyStart,
+		AlignItems: instructions.AlignItemsStart,
+		Width:      200,
+		Height:     60,
+	}
+
+	al := instructions.NewAutoLayout(10, 20, style)
+	al.Add(a, instructions.ItemStyle{})
+	al.Add(b, instructions.ItemStyle{IgnoreGapBefore: true})
+
+	base, overlay := newCanvases()
+	al.Draw(base, overlay)
+
+	require.Equal(t, 15, a.x)
+	require.Equal(t, 25, a.y)
+	require.Equal(t, 65, b.x) // gap skipped
+	require.Equal(t, 25, b.y)
+	require.Greater(t, a.drawCalls, 0)
+	require.Greater(t, b.drawCalls, 0)
+}
