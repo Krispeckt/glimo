@@ -29,13 +29,13 @@ func (p *Solid) Opacity() float64 { return p.opacity }
 
 // NewSolid creates a new solid pattern with the specified color,
 // using the default blend mode (Normal) and full opacity.
-func NewSolid(c Color) Pattern {
+func NewSolid(c Color) *Solid {
 	return &Solid{color: c, mode: BlendPassThrough, opacity: 1}
 }
 
 // NewSolidWithBlend creates a new solid pattern with a specific blend mode and opacity.
 // The opacity is clamped to the range [0, 1].
-func NewSolidWithBlend(c Color, mode BlendMode, opacity float64) BlendedPattern {
+func NewSolidWithBlend(c Color, mode BlendMode, opacity float64) *Solid {
 	return &Solid{
 		color:   c,
 		mode:    mode,

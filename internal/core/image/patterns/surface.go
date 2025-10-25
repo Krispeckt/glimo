@@ -82,13 +82,13 @@ func (s *Surface) ColorAt(x, y int) color.Color {
 
 // NewSurface creates a new Surface pattern from an image with a repetition mode.
 // By default, it uses normal blending and full opacity.
-func NewSurface(im image.Image, op RepeatOp) Pattern {
+func NewSurface(im image.Image, op RepeatOp) *Surface {
 	return &Surface{im: im, op: op}
 }
 
 // NewSurfaceWithBlend creates a new Surface pattern with custom blending and opacity.
 // The opacity value is clamped to [0, 1].
-func NewSurfaceWithBlend(im image.Image, op RepeatOp, mode BlendMode, opacity float64) BlendedPattern {
+func NewSurfaceWithBlend(im image.Image, op RepeatOp, mode BlendMode, opacity float64) *Surface {
 	return &Surface{
 		im:      im,
 		op:      op,

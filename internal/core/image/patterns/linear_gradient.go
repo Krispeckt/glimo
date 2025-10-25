@@ -27,7 +27,7 @@ func (g *LinearGradient) Opacity() float64 { return g.opacity }
 
 // NewLinearGradient creates a new linear gradient from (x0, y0) to (x1, y1)
 // with default blend mode (Normal) and full opacity.
-func NewLinearGradient(x0, y0, x1, y1 float64) GradientPattern {
+func NewLinearGradient(x0, y0, x1, y1 float64) *LinearGradient {
 	return &LinearGradient{
 		x0: x0, y0: y0, x1: x1, y1: y1,
 		mode: BlendPassThrough, opacity: 1,
@@ -36,7 +36,7 @@ func NewLinearGradient(x0, y0, x1, y1 float64) GradientPattern {
 
 // NewLinearGradientWithBlend creates a linear gradient from (x0, y0) to (x1, y1)
 // with a specified blend mode and opacity.
-func NewLinearGradientWithBlend(x0, y0, x1, y1 float64, mode BlendMode, opacity float64) GradientPattern {
+func NewLinearGradientWithBlend(x0, y0, x1, y1 float64, mode BlendMode, opacity float64) *LinearGradient {
 	return &LinearGradient{
 		x0: x0, y0: y0, x1: x1, y1: y1,
 		mode: mode, opacity: geom.ClampF64(opacity, 0, 1),

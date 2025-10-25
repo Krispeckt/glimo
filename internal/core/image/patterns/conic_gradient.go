@@ -31,7 +31,7 @@ func (g *ConicGradient) Opacity() float64 { return g.opacity }
 // NewConicGradient creates a new conic gradient centered at (cx, cy),
 // rotating `deg` degrees clockwise.
 // Rotation is normalized to [0, 1) turns, where 1.0 = 360°.
-func NewConicGradient(cx, cy, deg float64) GradientPattern {
+func NewConicGradient(cx, cy, deg float64) *ConicGradient {
 	return &ConicGradient{
 		cx:       cx,
 		cy:       cy,
@@ -43,7 +43,7 @@ func NewConicGradient(cx, cy, deg float64) GradientPattern {
 
 // NewConicGradientWithBlend creates a conic gradient with a specified
 // blending mode and opacity.
-func NewConicGradientWithBlend(cx, cy, deg float64, mode BlendMode, opacity float64) GradientPattern {
+func NewConicGradientWithBlend(cx, cy, deg float64, mode BlendMode, opacity float64) *ConicGradient {
 	return &ConicGradient{
 		cx:       cx,
 		cy:       cy,
