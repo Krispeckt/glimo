@@ -14,7 +14,7 @@ func TestInstructionPoint(t *testing.T) {
 
 	require.NotPanics(t, func() {
 		c.LoadInstruction(instructions.NewPoint(10, 10).SetColor(colors.Blue))
-	}, "AddInstructions should not panic")
+	}, "LoadInstructions should not panic")
 
 	err := c.Export("./output/point_test.png")
 	require.NoError(t, err, "export should succeed")
