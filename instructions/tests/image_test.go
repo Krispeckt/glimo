@@ -102,7 +102,7 @@ func TestInstructionImage(t *testing.T) {
 
 			cse.cfg(im)
 			require.NotPanics(t, func() {
-				layer.LoadInstructions([]instructions.Shape{im})
+				layer.LoadInstruction(im)
 			}, "LoadInstructions should not panic")
 
 			err := layer.Export("./output/line_" + cse.name + ".png")

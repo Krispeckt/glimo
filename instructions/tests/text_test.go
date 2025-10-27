@@ -25,7 +25,7 @@ func TestInstructionText(t *testing.T) {
 		{
 			name: "gradient_fill_with_shadow",
 			setup: func(t *testing.T, c *instructions.Layer) {
-				c.LoadInstructions([]instructions.Shape{
+				c.LoadInstructions(
 					instructions.NewRectangle(0, 150, 250, 200).SetFillColor(bg),
 					instructions.NewText(
 						"1234567890 glimo Test Glimo Test Glimo Test Glimo Test Glimo Test Glimo Test Glimo Test Glimo Test Glimo Test",
@@ -42,25 +42,25 @@ func TestInstructionText(t *testing.T) {
 						SetMaxLines(2).
 						SetWrapMode(instructions.WrapBySymbol).
 						SetScaleStep(-12),
-				})
+				)
 			},
 		},
 		{
 			name: "solid_fill_text",
 			setup: func(t *testing.T, c *instructions.Layer) {
-				c.LoadInstructions([]instructions.Shape{
+				c.LoadInstructions(
 					instructions.NewRectangle(0, 150, 250, 200).SetFillColor(bg),
 					instructions.NewText("Solid Color Text", 0, 150, font).
 						SetColorPattern(colors.NewSolidWithBlend(colors.IndianRed, colors.BlendExclusion, 0.8)).
 						SetAlign(instructions.AlignTextLeft).
 						SetMaxWidth(1000),
-				})
+				)
 			},
 		},
 		{
 			name: "multiline_wrapped_text",
 			setup: func(t *testing.T, c *instructions.Layer) {
-				c.LoadInstructions([]instructions.Shape{
+				c.LoadInstructions(
 					instructions.NewText(
 						"Glimo supports multiple lines and wraps text properly by symbol when width is limited.",
 						0, 150, font,
@@ -70,29 +70,29 @@ func TestInstructionText(t *testing.T) {
 						SetMaxWidth(600).
 						SetMaxLines(3).
 						SetWrapMode(instructions.WrapBySymbol),
-				})
+				)
 			},
 		},
 		{
 			name: "right_aligned_text",
 			setup: func(t *testing.T, c *instructions.Layer) {
-				c.LoadInstructions([]instructions.Shape{
+				c.LoadInstructions(
 					instructions.NewText("Right Aligned Example", 0, 150, font).
 						SetColorPattern(colors.NewSolid(colors.MediumPurple)).
 						SetAlign(instructions.AlignTextRight).
 						SetMaxWidth(800),
-				})
+				)
 			},
 		},
 		{
 			name: "stroke",
 			setup: func(t *testing.T, c *instructions.Layer) {
-				c.LoadInstructions([]instructions.Shape{
+				c.LoadInstructions(
 					instructions.NewText("glimo Stroke Example", 0, 150, font).
 						SetColorPattern(colors.NewSolid(colors.MediumPurple)).
 						SetStrokeWithPattern(colors.NewSolid(colors.MintCream), 4).
 						SetMaxWidth(800),
-				})
+				)
 			},
 		},
 	}

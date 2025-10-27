@@ -55,3 +55,55 @@ func (s *Size) IsZero() bool {
 func (s *Size) Copy() *Size {
 	return &Size{width: s.width, height: s.height}
 }
+
+// Union returns a new Size that is the axis-aligned union of s and other,
+// assuming both are anchored at the same origin. The result width and height
+// are the component-wise maxima. Nil receivers are treated as zero sizes.
+func (s *Size) Union(other *Size) *Size {
+	if s == nil && other == nil {
+		return NewSize(0, 0)
+	}
+	if s == nil {
+		return other.Copy()
+	}
+	if other == nil {
+		return s.Copy()
+	}
+	w := s.width
+	if other.width > w {
+		w = other.width
+	}
+	h := s.height
+	if other.height > h {
+		h = other.height
+	}
+	return NewSize(w, h)
+}
+
+// UnionInPlace expands s to be the union with other. No-op if s is nil.
+func (s *Size) UnionInPlace(other *Size) {
+	if s == nil || other == nil {
+		return
+	}
+	if other.width > s.width {
+		s.width = other.width
+	}
+	if other.height > s.height {
+		s.height = other.height
+	}
+	if s.width < 0 {
+		s.width = 0
+	}
+	if s.height < 0 {
+		s.height = 0
+	}
+}
+
+// UnionAll returns the union of all provided sizes. Nil entries are treated as zero.
+func UnionAll(sizes ...*Size) *Size {
+	out := NewSize(0, 0)
+	for _, sz := range sizes {
+		out.UnionInPlace(sz)
+	}
+	return out
+}

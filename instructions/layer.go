@@ -219,7 +219,7 @@ func (l *Layer) LoadInstruction(shape Shape) {
 
 // LoadInstructions executes a sequence of drawing instructions in order.
 // Optimized for batch operations while maintaining predictable execution order.
-func (l *Layer) LoadInstructions(shapes []Shape) {
+func (l *Layer) LoadInstructions(shapes ...Shape) {
 	if len(shapes) == 0 {
 		return
 	}

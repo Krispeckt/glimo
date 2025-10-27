@@ -32,7 +32,7 @@ func NewCircle(x, y, radius float64) *Circle {
 		fill:      patterns.NewSolid(colors.Transparent),
 		stroke:    patterns.NewSolid(colors.Transparent),
 		lineWidth: 1,
-		strokePos: StrokeCenter,
+		strokePos: StrokeInside,
 		steps:     32,
 		effects:   containers.Effects{},
 	}
@@ -113,7 +113,8 @@ func (c *Circle) SetPosition(x, y int) {
 // Size returns circle diameter as Size.
 func (c *Circle) Size() *geom.Size {
 	d := c.radius * 2
-	return geom.NewSize(d, d)
+	o := c.strokePos.Outset(c.lineWidth)
+	return geom.NewSize(d+o, d+o)
 }
 
 // Position returns top-left of bounding box.

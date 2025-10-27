@@ -18,26 +18,26 @@ func TestInstructionRectangle(t *testing.T) {
 		{
 			name: "basic",
 			setup: func(t *testing.T, c *instructions.Layer) {
-				c.LoadInstructions([]instructions.Shape{
+				c.LoadInstructions(
 					instructions.NewRectangle(20, 20, 120, 80).
 						SetFillPattern(colors.NewSolidWithBlend(colors.Pumpkin, colors.BlendPlusLighter, 1)).
 						SetStrokeColor(colors.RebeccaPurple.SetBlendMode(colors.BlendHue)).
 						SetLineWidth(3),
-				})
+				)
 			},
 		},
 		{
 			name: "zero_size",
 			setup: func(t *testing.T, c *instructions.Layer) {
-				c.LoadInstructions([]instructions.Shape{
+				c.LoadInstructions(
 					instructions.NewRectangle(10, 10, 0, 0),
-				})
+				)
 			},
 		},
 		{
 			name: "rounded_corners",
 			setup: func(t *testing.T, c *instructions.Layer) {
-				c.LoadInstructions([]instructions.Shape{
+				c.LoadInstructions(
 					instructions.NewRectangle(20, 20, 100, 100).
 						SetRadius(20).
 						SetFillColor(colors.Coral).
@@ -47,34 +47,34 @@ func TestInstructionRectangle(t *testing.T) {
 						SetFillColor(colors.DavysGray).
 						SetStrokeColor(colors.Orange).
 						SetLineWidth(2),
-				})
+				)
 			},
 		},
 		{
 			name: "no_stroke",
 			setup: func(t *testing.T, c *instructions.Layer) {
-				c.LoadInstructions([]instructions.Shape{
+				c.LoadInstructions(
 					instructions.NewRectangle(30, 30, 100, 100).
 						SetFillColor(colors.RebeccaPurple).
 						SetStrokeColor(colors.Transparent),
-				})
+				)
 			},
 		},
 		{
 			name: "no_fill",
 			setup: func(t *testing.T, c *instructions.Layer) {
-				c.LoadInstructions([]instructions.Shape{
+				c.LoadInstructions(
 					instructions.NewRectangle(40, 40, 80, 80).
 						SetFillPattern(nil).
 						SetStrokeColor(colors.MediumSpringGreen).
 						SetLineWidth(4),
-				})
+				)
 			},
 		},
 		{
 			name: "nested",
 			setup: func(t *testing.T, c *instructions.Layer) {
-				c.LoadInstructions([]instructions.Shape{
+				c.LoadInstructions(
 					instructions.NewRectangle(50, 50, 300, 300).
 						SetFillColor(colors.SkyBlue).
 						SetStrokeColor(colors.Navy).
@@ -89,7 +89,7 @@ func TestInstructionRectangle(t *testing.T) {
 						SetStrokeColor(colors.IndianRed).
 						SetLineWidth(2).
 						SetCornerRadii(10, 30, 50, 0),
-				})
+				)
 			},
 		},
 		{
@@ -114,13 +114,13 @@ func TestInstructionRectangle(t *testing.T) {
 					instrs = append(instrs, rect)
 					offsetX += 10
 				}
-				c.LoadInstructions(instrs)
+				c.LoadInstructions(instrs...)
 			},
 		},
 		{
 			name: "transparency",
 			setup: func(t *testing.T, c *instructions.Layer) {
-				c.LoadInstructions([]instructions.Shape{
+				c.LoadInstructions(
 					instructions.NewRectangle(20, 20, 120, 120).
 						SetFillColor(colors.RGBA(255, 0, 0, 128)).
 						SetStrokeColor(colors.RGBA(255, 255, 255, 255)).
@@ -129,18 +129,18 @@ func TestInstructionRectangle(t *testing.T) {
 						SetFillColor(colors.RGBA(0, 0, 255, 128)).
 						SetStrokeColor(colors.RGBA(255, 255, 255, 255)).
 						SetLineWidth(2),
-				})
+				)
 			},
 		},
 		{
 			name: "bounds",
 			setup: func(t *testing.T, c *instructions.Layer) {
-				c.LoadInstructions([]instructions.Shape{
+				c.LoadInstructions(
 					instructions.NewRectangle(-50, -50, 300, 300).
 						SetFillColor(colors.CornflowerBlue).
 						SetStrokeColor(colors.DavysGray).
 						SetLineWidth(5),
-				})
+				)
 			},
 		},
 	}

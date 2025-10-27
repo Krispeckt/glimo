@@ -19,47 +19,47 @@ func TestInstructionCircle(t *testing.T) {
 		{
 			name: "basic",
 			setup: func(t *testing.T, c *instructions.Layer) {
-				c.LoadInstructions([]instructions.Shape{
+				c.LoadInstructions(
 					instructions.NewCircle(50, 50, 40).
 						SetFillColor(colors.Orange).
 						SetStrokeColor(colors.Navy).
 						SetLineWidth(3),
-				})
+				)
 			},
 		},
 		{
 			name: "zero_radius",
 			setup: func(t *testing.T, c *instructions.Layer) {
-				c.LoadInstructions([]instructions.Shape{
+				c.LoadInstructions(
 					instructions.NewCircle(100, 100, 0),
-				})
+				)
 			},
 		},
 		{
 			name: "no_stroke",
 			setup: func(t *testing.T, c *instructions.Layer) {
-				c.LoadInstructions([]instructions.Shape{
+				c.LoadInstructions(
 					instructions.NewCircle(120, 120, 60).
 						SetFillColor(colors.MediumSpringGreen).
 						SetStrokeColor(colors.Transparent),
-				})
+				)
 			},
 		},
 		{
 			name: "no_fill",
 			setup: func(t *testing.T, c *instructions.Layer) {
-				c.LoadInstructions([]instructions.Shape{
+				c.LoadInstructions(
 					instructions.NewCircle(150, 150, 50).
 						SetFillPattern(nil).
 						SetStrokeColor(colors.RebeccaPurple).
 						SetLineWidth(4),
-				})
+				)
 			},
 		},
 		{
 			name: "nested",
 			setup: func(t *testing.T, c *instructions.Layer) {
-				c.LoadInstructions([]instructions.Shape{
+				c.LoadInstructions(
 					instructions.NewCircle(100, 100, 80).
 						SetFillColor(colors.SkyBlue).
 						SetStrokeColor(colors.Navy).
@@ -72,7 +72,7 @@ func TestInstructionCircle(t *testing.T) {
 						SetFillColor(colors.Orange).
 						SetStrokeColor(colors.IndianRed).
 						SetLineWidth(2),
-				})
+				)
 			},
 		},
 		{
@@ -89,13 +89,13 @@ func TestInstructionCircle(t *testing.T) {
 						SetLineWidth(2)
 					instrs = append(instrs, circle)
 				}
-				c.LoadInstructions(instrs)
+				c.LoadInstructions(instrs...)
 			},
 		},
 		{
 			name: "transparency_overlap",
 			setup: func(t *testing.T, c *instructions.Layer) {
-				c.LoadInstructions([]instructions.Shape{
+				c.LoadInstructions(
 					instructions.NewCircle(60, 60, 60).
 						SetFillColor(colors.RGBA(255, 0, 0, 128)).
 						SetStrokeColor(colors.White).
@@ -104,52 +104,52 @@ func TestInstructionCircle(t *testing.T) {
 						SetFillColor(colors.RGBA(0, 0, 255, 128)).
 						SetStrokeColor(colors.White).
 						SetLineWidth(2),
-				})
+				)
 			},
 		},
 		{
 			name: "outside_stroke",
 			setup: func(t *testing.T, c *instructions.Layer) {
-				c.LoadInstructions([]instructions.Shape{
+				c.LoadInstructions(
 					instructions.NewCircle(200, 200, 60).
 						SetFillColor(colors.Crimson).
 						SetStrokeColor(colors.Black).
 						SetStrokePosition(instructions.StrokeOutside).
 						SetLineWidth(8),
-				})
+				)
 			},
 		},
 		{
 			name: "inside_stroke",
 			setup: func(t *testing.T, c *instructions.Layer) {
-				c.LoadInstructions([]instructions.Shape{
+				c.LoadInstructions(
 					instructions.NewCircle(300, 100, 60).
 						SetFillColor(colors.Gold).
 						SetStrokeColor(colors.ForestGreen).
 						SetStrokePosition(instructions.StrokeInside).
 						SetLineWidth(6),
-				})
+				)
 			},
 		},
 		{
 			name: "bounds",
 			setup: func(t *testing.T, c *instructions.Layer) {
-				c.LoadInstructions([]instructions.Shape{
+				c.LoadInstructions(
 					instructions.NewCircle(-30, -30, 100).
 						SetFillColor(colors.CornflowerBlue).
 						SetStrokeColor(colors.DavysGray).
 						SetLineWidth(5),
-				})
+				)
 			},
 		},
 		{
 			name: "drop_shadow",
 			setup: func(t *testing.T, c *instructions.Layer) {
-				c.LoadInstructions([]instructions.Shape{
+				c.LoadInstructions(
 					instructions.NewCircle(20, 20, 100).
 						SetFillColor(colors.Amethyst).
 						AddEffects(effects.NewDropShadow(0, 4, 4, 0, colors.Amethyst, 0.5)),
-				})
+				)
 			},
 		},
 	}
