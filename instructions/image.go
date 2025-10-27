@@ -1,3 +1,5 @@
+// Package instructions provides primitives for drawing raster images with fitting,
+// flipping, rotation, mask support, effects, and global opacity.
 package instructions
 
 import (
@@ -14,76 +16,67 @@ import (
 	"github.com/Krispeckt/glimo/internal/core/image/patterns"
 )
 
-// FitMode tells HOW we resize the source into the target width/height.
-// Think of it as "fitting strategy".
+// FitMode defines how the source image is resized to the target width/height.
 type FitMode int
 
 const (
-	// FitStretch : brutally stretch to target W×h. Aspect ratio is ignored.
-	// Use this when you do not care about distortion.
+	// FitStretch stretches to exactly W×H. Aspect ratio is ignored.
 	FitStretch FitMode = iota
 
-	// FitContain : keep aspect ratio and make the whole image fit INSIDE W×h.
-	// You may get empty space around (letterboxing/pillarboxing). No cropping.
+	// FitContain preserves aspect ratio and fits fully inside W×H.
+	// May leave empty space (letterbox/pillarbox). No cropping.
 	FitContain
 
-	// FitCover : keep aspect ratio and make the image FILL W×h completely.
-	// This may crop the edges. Good for full-bleed thumbnails and covers.
+	// FitCover preserves aspect ratio and fills W×H completely.
+	// Crops overflow. Good for thumbnails and covers.
 	FitCover
 )
 
-// Image draws a raster image with resize, flips, any-angle rotation,
-// optional canvas expansion, external effects, and global opacity.
+// Image draws a raster with resize, flips, any-angle rotation,
+// optional canvas expansion, effects, global opacity, and optional mask.
 //
-// Fields are intentionally unexported. Use getters/setters. This keeps the
-// internal state consistent and easy to reason about for newcomers.
+// Fields are intentionally unexported. Use setters to keep state consistent.
 type Image struct {
-	// src is the original input picture you want to draw.
+	// src is the original input image to draw.
 	src image.Image
 
+	// mask is an optional per-pixel alpha mask in destination space.
 	mask *image.RGBA
 
-	// x,y are the top-left position where the prepared layer will be placed
-	// on the destination canvas.
+	// x,y are the destination top-left where the prepared layer is placed.
 	x, y int
 
-	// w,h is the target size BEFORE flips/rotation. Zero means "use source".
-	// Note: h is capitalized to avoid shadowing "h" in loops. It is intentional.
+	// w,h are target dimensions before flips/rotation. Zero means use source.
+	// Note: capital H avoids shadowing loop variables.
 	w, h int
 
-	// fit defines how we squeeze the source into w×h (see FitMode).
+	// fit selects the resize policy.
 	fit FitMode
 
-	// flipH/flipV mirror the image left-right / top-bottom.
+	// flipH/flipV mirror horizontally / vertically.
 	flipH, flipV bool
 
-	// angleDeg is rotation in degrees. Positive means clockwise.
-	// You can pass ANY float (e.g., 13.37). Internally we normalize to [0..360).
+	// angleDeg is rotation in degrees. Positive is clockwise.
 	angleDeg float64
 
-	// expand=true means we enlarge the layer so the rotated image is not cropped.
-	// expand=false keeps the layer size and crops rotated corners.
+	// expand grows the layer to avoid rotation cropping when true.
 	expand bool
 
-	// opacity is global alpha in [0..1]. 1=opaque, 0=fully transparent.
+	// opacity is global alpha in [0..1].
 	opacity float64
 
-	// bg is the fill color used for pixels that fall OUTSIDE the source
-	// during rotation sampling. Usually Transparent.
+	// bg is the color used when rotation samples outside the source.
 	bg patterns.Color
 
-	// effects is your external effect pipeline. It can modify
-	//  - the destination (PRE) and
-	//  - the prepared layer (POST).
+	// effects is an external pipeline that can run pre/post.
 	effects *containers.Effects
 }
 
-// NewImage creates a new Image instruction located at (x, y) with safe defaults.
-// Defaults are chosen to "just work":
-//   - FitContain: no distortion.
-//   - opacity=1: fully visible.
-//   - bg=Transparent: clean rotation outside fill.
-//   - empty effects chain: nothing runs unless you add effects.
+// NewImage creates a new Image at (x, y) with safe defaults:
+//   - FitContain
+//   - opacity = 1
+//   - bg = Transparent
+//   - empty effects chain
 func NewImage(src image.Image, x, y int) *Image {
 	return &Image{
 		x:       x,
@@ -96,44 +89,41 @@ func NewImage(src image.Image, x, y int) *Image {
 	}
 }
 
-// SetSize sets the target width/height in pixels.
-// If you pass 0 for w or h, that specific dimension will use the source value.
-// Example: SetSize(0, 300) keeps source width, scales height to 300.
+// SetSize sets target width/height. Zero keeps that axis from the source.
 func (im *Image) SetSize(w, h int) *Image { im.w, im.h = w, h; return im }
 
-// SetFit selects the resize strategy (Stretch/Contain/Cover). See FitMode docs.
+// SetFit selects Stretch/Contain/Cover.
 func (im *Image) SetFit(f FitMode) *Image { im.fit = f; return im }
 
-// Mirror flips the image. h=true mirrors left↔right. v=true mirrors top↔bottom.
-// You can combine both.
+// Mirror flips the image. h for horizontal, v for vertical.
 func (im *Image) Mirror(h, v bool) *Image { im.flipH, im.flipV = h, v; return im }
 
-// SetFlip is the same as Mirror, provided for naming preference.
+// SetFlip is an alias of Mirror.
 func (im *Image) SetFlip(h, v bool) *Image { im.flipH, im.flipV = h, v; return im }
 
-// Rotate sets rotation in degrees. Any float is valid. Positive = clockwise.
+// Rotate sets rotation angle in degrees.
 func (im *Image) Rotate(deg float64) *Image { im.angleDeg = deg; return im }
 
-// SetExpand controls whether the layer should grow to fully contain the rotated image.
-// true = no crop at corners; false = keep original layer size and crop corners.
+// SetExpand controls whether rotation expands the canvas to avoid cropping.
 func (im *Image) SetExpand(b bool) *Image { im.expand = b; return im }
 
-// SetOpacity sets global transparency in [0..1]. Values outside are clamped.
-// 1 = fully visible. 0.5 = 50% see-through. 0 = invisible.
+// SetOpacity sets global alpha in [0..1]. Values are clamped.
 func (im *Image) SetOpacity(o float64) *Image {
 	im.opacity = geom.ClampF64(o, 0, 1)
 	return im
 }
 
-// SetBackground sets the fallback color used by rotation sampling outside source bounds.
-// For most cases you want colors.Transparent here.
+// SetBackground sets the color sampled outside source bounds during rotation.
 func (im *Image) SetBackground(c patterns.Color) *Image { im.bg = c; return im }
 
+// SetMaskImage assigns a mask image in destination space.
 func (im *Image) SetMaskImage(m *image.RGBA) *Image {
 	im.mask = m
 	return im
 }
 
+// SetMaskFromShape renders a Shape into an RGBA mask matching the target size.
+// If target size is zero, uses source bounds.
 func (im *Image) SetMaskFromShape(s Shape) *Image {
 	if s == nil {
 		return im
@@ -145,37 +135,38 @@ func (im *Image) SetMaskFromShape(s Shape) *Image {
 		size = image.NewRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
 	}
 
+	// The shape draws its alpha into the mask canvas.
 	s.Draw(size, size)
 
 	im.mask = size
 	return im
 }
 
-// ClearMask сбрасывает маску.
+// ClearMask removes the current mask.
 func (im *Image) ClearMask() *Image { im.mask = nil; return im }
 
-// AddEffect attaches a visual effect to the text rendering pipeline.
+// AddEffect appends a single effect to the pipeline.
 func (im *Image) AddEffect(e effects.Effect) *Image {
 	im.effects.Add(e)
 	return im
 }
 
-// AddEffects attaches multiple visual effects to the pipeline.
+// AddEffects appends multiple effects.
 func (im *Image) AddEffects(es ...effects.Effect) *Image {
 	im.effects.AddList(es)
 	return im
 }
 
-// SetPosition moves the layer to (x, y) on the destination canvas.
+// SetPosition moves the layer to (x, y).
 func (im *Image) SetPosition(x, y int) { im.x, im.y = x, y }
 
-// Position returns the top-left coordinate where the layer is drawn.
+// Position returns the destination top-left coordinate.
 func (im *Image) Position() (int, int) { return im.x, im.y }
 
-// Size returns the target size. Zero value means "use source" for that axis.
+// Size returns the target size. Zero values mean "use source" for that axis.
 func (im *Image) Size() *geom.Size { return geom.NewSize(float64(im.w), float64(im.h)) }
 
-// Draw executes the full pipeline and paints onto overlay.
+// Draw runs the pipeline and composites onto overlay.
 func (im *Image) Draw(_, overlay *image.RGBA) {
 	if im.src == nil || im.opacity <= 0 {
 		return
@@ -183,6 +174,7 @@ func (im *Image) Draw(_, overlay *image.RGBA) {
 
 	im.effects.PreApplyAll(overlay)
 
+	// 1) Resize according to FitMode.
 	img := im.src
 	W, H := im.targetSize()
 	if W > 0 && H > 0 {
@@ -190,6 +182,7 @@ func (im *Image) Draw(_, overlay *image.RGBA) {
 	}
 	imgLayer := imageUtil.ToRGBA(img)
 
+	// 2) Flips and rotation.
 	if im.flipH || im.flipV {
 		imgLayer = flipRGBA(imgLayer, im.flipH, im.flipV)
 	}
@@ -197,54 +190,72 @@ func (im *Image) Draw(_, overlay *image.RGBA) {
 		imgLayer = rotateAnyRGBA(imgLayer, a, im.bg, im.expand)
 	}
 
+	// 3) Post effects operate on the prepared layer.
 	im.effects.PostApplyAll(imgLayer)
 
+	// 4) Compute destination placement and clip region.
 	dstPt := image.Pt(im.x, im.y)
 	dstRect := image.Rectangle{Min: dstPt, Max: dstPt.Add(imgLayer.Bounds().Size())}
 
-	// Клип по overlay.
 	place := dstRect.Intersect(overlay.Bounds())
 	if place.Empty() {
 		return
 	}
-	// Смещение источника относительно обрезанного прямоугольника.
+
+	// Source origin adjusted by the amount clipped.
 	srcPt := imgLayer.Bounds().Min.Add(place.Min.Sub(dstRect.Min))
 
+	// 5) Align mask to follow the image. Mask origin is tied to dstRect.Min.
+	maskOffset := image.Pt(0, 0)
+	if im.mask != nil {
+		// mp in DrawMask corresponds to place.Min. To move mask with the image,
+		// set mp = place.Min - dstRect.Min.
+		maskOffset = place.Min.Sub(dstRect.Min)
+	}
+
+	// 6) Composite with or without mask and global opacity.
 	switch {
 	case im.mask == nil && im.opacity >= 1:
 		draw.Draw(overlay, place, imgLayer, srcPt, draw.Over)
 
 	case im.mask != nil && im.opacity >= 1:
-		// Маска читается в абсолютных координатах; клип — через place.
-		draw.DrawMask(overlay, place, imgLayer, srcPt, im.mask, place.Min, draw.Over)
+		draw.DrawMask(overlay, place, imgLayer, srcPt, im.mask, maskOffset, draw.Over)
 
 	default:
 		alpha := uint8(geom.ClampF64(im.opacity*255, 0, 255))
-		loc := multiplyMaskAlphaClipped(im.mask, place, alpha)
+		loc := multiplyMaskAlphaClippedOffset(im.mask, place, maskOffset, alpha)
 		draw.DrawMask(overlay, place, imgLayer, srcPt, loc, image.Point{}, draw.Over)
 	}
 }
 
-// multiplyMaskAlphaClipped создаёт локальную маску размера place.
-// A = mask.A(at absolute (x,y)) * globalAlpha / 255.
-func multiplyMaskAlphaClipped(mask *image.RGBA, place image.Rectangle, globalAlpha uint8) *image.Alpha {
+// multiplyMaskAlphaClippedOffset creates a local Alpha mask sized to `place`.
+// Each pixel is: mask.A at (mp + local) multiplied by globalAlpha / 255.
+func multiplyMaskAlphaClippedOffset(mask *image.RGBA, place image.Rectangle, maskOffset image.Point, globalAlpha uint8) *image.Alpha {
 	out := image.NewAlpha(image.Rect(0, 0, place.Dx(), place.Dy()))
 	if mask == nil || globalAlpha == 0 || place.Empty() {
 		return out
 	}
+
+	mb := mask.Bounds()
+	baseX := mb.Min.X + maskOffset.X
+	baseY := mb.Min.Y + maskOffset.Y
+
 	for y := 0; y < place.Dy(); y++ {
 		for x := 0; x < place.Dx(); x++ {
-			ax := place.Min.X + x
-			ay := place.Min.Y + y
-			ma := mask.RGBAAt(ax, ay).A // вне bounds вернёт 0
+			mx := baseX + x
+			my := baseY + y
+			ma := uint8(0)
+			if mx >= mb.Min.X && mx < mb.Max.X && my >= mb.Min.Y && my < mb.Max.Y {
+				ma = mask.RGBAAt(mx, my).A
+			}
 			out.SetAlpha(x, y, color.Alpha{A: geom.Mul255(ma, globalAlpha)})
 		}
 	}
 	return out
 }
 
-// targetSize computes the final size used for resizing.
-// If either dimension is zero, we pull it from the source bounds.
+// targetSize returns the final resize dimensions, substituting source
+// dimensions for any axis that is zero.
 func (im *Image) targetSize() (int, int) {
 	w, h := im.w, im.h
 	if w <= 0 || h <= 0 {
@@ -259,19 +270,16 @@ func (im *Image) targetSize() (int, int) {
 	return w, h
 }
 
-// resizeWithFit resizes the image according to the selected FitMode.
-// Result is either resized directly (Stretch/Contain) or resized+cropped (Cover).
+// resizeWithFit applies the selected FitMode.
+// Stretch: direct resize. Contain: aspect-fit. Cover: aspect-fill + center crop.
 func resizeWithFit(src image.Image, W, H int, mode FitMode) image.Image {
 	switch mode {
 	case FitStretch:
-		// Directly resize to W×h, ignoring aspect ratio.
 		return imageUtil.ResizeRGBA(src, W, H)
 
 	case FitContain:
-		// Keep aspect ratio. fit entire image inside W×h.
 		sw, sh := src.Bounds().Dx(), src.Bounds().Dy()
 		if sw == 0 || sh == 0 {
-			// Degenerate source; fall back to requested size.
 			return imageUtil.ResizeRGBA(src, W, H)
 		}
 		r := math.Min(float64(W)/float64(sw), float64(H)/float64(sh))
@@ -281,7 +289,6 @@ func resizeWithFit(src image.Image, W, H int, mode FitMode) image.Image {
 		)
 
 	case FitCover:
-		// Keep aspect ratio. Fill W×h entirely. Crop the overflow at center.
 		sw, sh := src.Bounds().Dx(), src.Bounds().Dy()
 		if sw == 0 || sh == 0 {
 			return imageUtil.ResizeRGBA(src, W, H)
@@ -296,13 +303,12 @@ func resizeWithFit(src image.Image, W, H int, mode FitMode) image.Image {
 		return imageUtil.CropRGBA(scaled, image.Rect(cx, cy, cx+W, cy+H))
 
 	default:
-		// Unknown mode: fall back to a simple resize.
 		return imageUtil.ResizeRGBA(src, W, H)
 	}
 }
 
-// flipRGBA returns a NEW image that is flipped horizontally and/or vertically.
-// If neither flag is true, the original image is returned as is.
+// flipRGBA returns a new image flipped horizontally and/or vertically.
+// If both flags are false, returns the original reference.
 func flipRGBA(src *image.RGBA, hflip, vflip bool) *image.RGBA {
 	if !hflip && !vflip {
 		return src
@@ -311,8 +317,6 @@ func flipRGBA(src *image.RGBA, hflip, vflip bool) *image.RGBA {
 	w, h := b.Dx(), b.Dy()
 	dst := image.NewRGBA(b)
 
-	// Simple index mapping. For each destination pixel we pull the corresponding
-	// source pixel. This is easy to read and understand for beginners.
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
 			tx, ty := x, y
@@ -328,25 +332,20 @@ func flipRGBA(src *image.RGBA, hflip, vflip bool) *image.RGBA {
 	return dst
 }
 
-// rotateAnyRGBA rotates the image by ANY angle in DEGREES using bilinear sampling.
-//   - Bilinear sampling mixes neighbor pixels, so rotated images look smooth.
-//   - If expand=true: the output canvas becomes large enough to hold the full
-//     rotated rectangle (no cropping).
-//   - If expand=false: output keeps original size, so corners may be cut.
-//   - Pixels that map outside the source bounds get the background color `bg`.
+// rotateAnyRGBA rotates by an arbitrary angle (degrees) using bilinear sampling.
+// - If expand=true, output bounds are enlarged to fit the rotated rect.
+// - If expand=false, output size equals input size and corners may be cropped.
+// - Pixels mapped outside the source use bg.
 func rotateAnyRGBA(src *image.RGBA, angleDeg float64, bg patterns.Color, expand bool) *image.RGBA {
 	b := src.Bounds()
 	sw, sh := b.Dx(), b.Dy()
 	if sw == 0 || sh == 0 {
-		// Empty source: nothing to rotate.
 		return src
 	}
 
-	// Convert degrees to radians and precompute sine/cosine.
 	rad := geom.Deg2Rad(angleDeg)
 	sinA, cosA := math.Sincos(rad)
 
-	// Decide destination size depending on expand.
 	dw, dh := sw, sh
 	if expand {
 		dw, dh = geom.RotatedBounds(sw, sh, rad)
@@ -360,27 +359,23 @@ func rotateAnyRGBA(src *image.RGBA, angleDeg float64, bg patterns.Color, expand 
 
 	bgRGBA := bg.ToColor()
 
-	// For every pixel in the DESTINATION, find where it came from in the SOURCE
-	// using the inverse rotation. Then sample with bilinear interpolation.
+	// Inverse mapping for each destination pixel followed by bilinear sampling.
 	for y := 0; y < dh; y++ {
 		fy := float64(y) - dcy
 		for x := 0; x < dw; x++ {
 			fx := float64(x) - dcx
 
-			// Inverse mapping by −angle:
-			//   [sx] = [ cosA  sinA] [fx] + [scx]
-			//   [sy]   [-sinA  cosA] [fy]   [scy]
+			// Inverse rotation by -angle.
+			// [sx] = [ cosA  sinA] [fx] + [scx]
+			// [sy]   [-sinA  cosA] [fy]   [scy]
 			sx := +fx*cosA + fy*sinA + scx
 			sy := -fx*sinA + fy*cosA + scy
 
-			// If the source coordinate is outside, fill with background.
 			if sx < 0 || sx > float64(sw-1) || sy < 0 || sy > float64(sh-1) {
 				dst.SetRGBA(x, y, bgRGBA)
 				continue
 			}
 
-			// Otherwise, fetch a smooth color using bilinear sampling.
-			// NOTE: we pass bg too, but here coords are inside so it is not used.
 			c := geom.BilinearRGBAAt(src, sx, sy, bg)
 			dst.SetRGBA(x, y, c)
 		}
