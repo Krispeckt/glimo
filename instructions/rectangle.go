@@ -20,6 +20,22 @@ const (
 	StrokeOutside
 )
 
+func (s StrokePosition) Outset(lineWidth float64) float64 {
+	if lineWidth <= 0 {
+		return 0
+	}
+	switch s {
+	case StrokeInside:
+		return 0
+	case StrokeCenter:
+		return lineWidth / 2
+	case StrokeOutside:
+		return lineWidth
+	default:
+		return 0
+	}
+}
+
 // Rectangle represents a drawable rectangle with per-corner rounding, fill, and stroke.
 type Rectangle struct {
 	x, y          float64
@@ -49,7 +65,7 @@ func NewRectangle(x, y, width, height float64) *Rectangle {
 		fillPattern:   patterns.NewSolid(colors.Transparent),
 		strokePattern: patterns.NewSolid(colors.Transparent),
 		lineWidth:     1,
-		strokePos:     StrokeCenter,
+		strokePos:     StrokeInside,
 		roundSteps:    8,
 		effects:       containers.Effects{},
 	}
@@ -159,7 +175,8 @@ func (r *Rectangle) SetPosition(x, y int) {
 
 // Size returns rectangle size.
 func (r *Rectangle) Size() *geom.Size {
-	return geom.NewSize(r.width, r.height)
+	o := r.strokePos.Outset(r.lineWidth)
+	return geom.NewSize(r.width+o, r.height+o)
 }
 
 // Position returns the top-left coordinate where the layer is drawn.

@@ -109,7 +109,7 @@ func TestInstructionLine(t *testing.T) {
 		{
 			name: "clip_preserve",
 			setup: func(t *testing.T, ctx *instructions.Layer) {
-				ctx.LoadInstructions([]instructions.Shape{
+				ctx.LoadInstructions(
 					instructions.NewLine().
 						SetFillPattern(colors.NewSolid(colors.IndianRed)).
 						MoveTo(30, 30).
@@ -125,7 +125,7 @@ func TestInstructionLine(t *testing.T) {
 						LineTo(150, 150).
 						ClosePath().
 						Fill(),
-				})
+				)
 			},
 		},
 		{
