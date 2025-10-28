@@ -177,6 +177,15 @@ func (im *Image) Size() *geom.Size {
 		w, h = rw, rh
 	}
 
+	if im.mask != nil {
+		if mw := im.mask.Bounds().Dx(); mw < w {
+			w = mw
+		}
+		if mh := im.mask.Bounds().Dy(); mh < h {
+			h = mh
+		}
+	}
+
 	return geom.NewSize(float64(w), float64(h))
 }
 
