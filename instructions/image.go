@@ -164,7 +164,21 @@ func (im *Image) SetPosition(x, y int) { im.x, im.y = x, y }
 func (im *Image) Position() (int, int) { return im.x, im.y }
 
 // Size returns the target size. Zero values mean "use source" for that axis.
-func (im *Image) Size() *geom.Size { return geom.NewSize(float64(im.w), float64(im.h)) }
+func (im *Image) Size() *geom.Size {
+	if im.src == nil {
+		return geom.NewSize(0, 0)
+	}
+
+	w, h := im.targetSize()
+
+	if a := math.Mod(im.angleDeg, 360); a != 0 && im.expand {
+		rad := geom.Deg2Rad(a)
+		rw, rh := geom.RotatedBounds(w, h, rad)
+		w, h = rw, rh
+	}
+
+	return geom.NewSize(float64(w), float64(h))
+}
 
 // Draw runs the pipeline and composites onto overlay.
 func (im *Image) Draw(_, overlay *image.RGBA) {
