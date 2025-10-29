@@ -3,60 +3,65 @@ package instructions
 import (
 	"math"
 	"strings"
+	"unicode"
 	"unicode/utf8"
+
+	"github.com/rivo/uniseg"
 
 	"github.com/Krispeckt/glimo/internal/core/geom"
 	"github.com/Krispeckt/glimo/internal/render"
 )
 
-// lineWidth returns the configured wrapping width in pixels.
-// A zero value disables wrapping and allows unbounded line length.
-func (t *Text) lineWidth() float64 {
-	if t.maxWidth <= 0 {
-		return 0
-	}
-	return t.maxWidth
-}
-
-// wrapTextScaled splits the text into lines based on newline characters
-// and performs per-line wrapping with font scaling.
+// wrapTextScaled splits text by logical paragraphs, wraps per line using the current WrapMode,
+// applies per-line scaling via t.fontForLine, and enforces maxLines with an ellipsis
+// when there is undisplayed content.
 //
-// Behavior:
-//   - Each paragraph is split on '\n'.
-//   - Lines are wrapped according to the current WrapMode.
-//   - Per-line scaling via scaleStep is applied progressively.
-//   - Ellipsis is appended if maxLines is reached.
-//   - Empty lines are preserved as paragraph breaks.
+// Notes:
+// - Line endings are normalized to '\n'.
+// - Unicode grapheme clusters are respected for all symbol-level operations.
+// - NBSP (U+00A0) is treated as non-breaking in word mode (it stays inside tokens).
+// - Hyphen/wrapSymbol is appended only when breaking inside a "word" boundary.
+// - Measurement caching is per Font pointer; pointer stability is assumed.
+//
+// Complexity:
+// - Word mode uses prefix sums per line to avoid string joins during fit checks.
+// - Symbol mode uses binary search over grapheme clusters.
 func (t *Text) wrapTextScaled() []string {
+	// Fast path: no wrapping requested.
 	if t.maxWidth <= 0 {
-		return strings.Split(t.text, "\n")
+		return strings.Split(normalizeNewlines(t.text), "\n")
 	}
+
 	var out []string
-	lineIdx := 0
 	truncated := false
+	lineIdx := 0
 
-	flushAndMaybeTruncate := func() bool {
-		if t.maxLines > 0 && len(out) > t.maxLines { // requires test coverage
-			out = out[:t.maxLines]
-			lastFont := t.fontForLine(t.maxLines - 1)
-			out = appendEllipsisRunes(out, lastFont, t.maxWidth)
-			truncated = true
-			return true
+	// Helper: append a line and, if maxLines is reached while more content exists,
+	// append an ellipsis and mark as truncated.
+	appendAndMaybeTruncate := func(s string, hasMore bool) {
+		if truncated {
+			return
 		}
-		return false
+		out = append(out, s)
+		if t.maxLines > 0 && len(out) == t.maxLines && hasMore {
+			lastFont := t.fontForLine(t.maxLines - 1)
+			out = appendEllipsisGraphemes(out, lastFont, t.maxWidth)
+			truncated = true
+		}
 	}
 
-	paras := strings.Split(t.text, "\n")
+	text := normalizeNewlines(t.text)
+	paras := strings.Split(text, "\n")
+
 	for pi, p := range paras {
 		if truncated {
 			break
 		}
+
+		// Preserve empty line as paragraph break.
 		if p == "" {
-			out = append(out, "")
+			appendAndMaybeTruncate("", pi < len(paras)-1)
 			lineIdx++
-			if flushAndMaybeTruncate() {
-				break
-			}
 			continue
 		}
 
@@ -67,146 +72,294 @@ func (t *Text) wrapTextScaled() []string {
 			sub = t.wrapParaByWordsScaled(p, &lineIdx)
 		}
 
-		for _, s := range sub {
+		for si, s := range sub {
 			if truncated {
 				break
 			}
-			out = append(out, s)
-			if flushAndMaybeTruncate() {
-				break
-			}
+			hasMore := si < len(sub)-1 || pi < len(paras)-1
+			appendAndMaybeTruncate(s, hasMore)
 		}
 
-		if pi < len(paras)-1 && paras[pi+1] == "" && !truncated {
-			out = append(out, "")
+		// Preserve blank line following a paragraph if it exists.
+		if !truncated && pi < len(paras)-1 && paras[pi+1] == "" {
+			appendAndMaybeTruncate("", pi+1 < len(paras)-1)
 			lineIdx++
-			_ = flushAndMaybeTruncate()
 		}
 	}
+
 	return out
 }
 
-// wrapParaByWordsScaled performs wrapping at word boundaries using
-// the configured maxWidth and per-line scaling.
+// wrapParaByWordsScaled wraps a paragraph at word boundaries.
+// If a single word exceeds width, it is split progressively by grapheme
+// under the current line font to ensure readability.
 //
-// Long tokens that exceed width individually are broken using
-// breakLongTokenWithFont to ensure readability.
+// Tokenization policy:
+// - Split only on ASCII space ' ' and TAB '\t'.
+// - NBSP (U+00A0) remains inside tokens and will not break lines by itself.
+// - Runs of separators collapse to a single gap in output by design.
 func (t *Text) wrapParaByWordsScaled(p string, lineIdxPtr *int) []string {
-	words := strings.Fields(p)
+	words := splitWordsPreserveNBSP(p)
 	if len(words) == 0 {
 		*lineIdxPtr++
 		return []string{""}
 	}
 
 	var lines []string
+
+	// Local measurement cache per font for lower overhead.
+	cache := make(map[*render.Font]map[string]float64)
+	measure := func(f *render.Font, s string) float64 {
+		if f == nil || s == "" {
+			return 0
+		}
+		m, ok := cache[f]
+		if !ok {
+			m = make(map[string]float64)
+			cache[f] = m
+		}
+		if w, ok := m[s]; ok {
+			return w
+		}
+		w, _ := f.MeasureString(s)
+		if math.IsNaN(w) || w < 0 {
+			w = 0
+		}
+		m[s] = w
+		return w
+	}
+
+	joinWithSpaces := func(ws []string) string {
+		switch len(ws) {
+		case 0:
+			return ""
+		case 1:
+			return ws[0]
+		default:
+			return strings.Join(ws, " ")
+		}
+	}
+
 	i := 0
 	for i < len(words) {
-		lf := t.fontForLine(*lineIdxPtr)
-		width := t.lineWidth()
+		f := t.fontForLine(*lineIdxPtr)
+		width := t.maxWidth
 
-		cur := words[i]
-		for i+1 < len(words) {
-			next := words[i+1]
-			if w, _ := lf.MeasureString(cur + " " + next); w <= width {
-				cur += " " + next
-				i++
-			} else {
-				break
-			}
-		}
-
-		if w0, _ := lf.MeasureString(cur); w0 > width {
-			chunks := t.breakLongTokenWithFont(words[i], lf, width)
-			for ci, c := range chunks {
-				lines = append(lines, c)
-				*lineIdxPtr++
-				if ci < len(chunks)-1 {
-					lf = t.fontForLine(*lineIdxPtr)
-					width = t.lineWidth()
-				}
-			}
+		// If one word is too long, split it progressively by graphemes.
+		if measure(f, words[i]) > width {
+			chunks := t.splitLongTokenProgressive(words[i], lineIdxPtr, measure)
+			lines = append(lines, chunks...)
 			i++
 			continue
 		}
 
-		lines = append(lines, cur)
+		// Precompute prefix sums of word widths for the current line's font.
+		// widthOf(i, j) returns width of words[i:j] with single ASCII spaces between.
+		spaceW := measure(f, " ")
+		rem := words[i:]
+		wW := make([]float64, len(rem))
+		for k := range rem {
+			wW[k] = measure(f, rem[k])
+		}
+		pref := make([]float64, len(rem)+1)
+		for k := 1; k <= len(rem); k++ {
+			pref[k] = pref[k-1] + wW[k-1]
+			if k > 1 {
+				pref[k] += spaceW
+			}
+		}
+		widthOf := func(a, b int) float64 { // [a, b) over rem
+			if a >= b {
+				return 0
+			}
+			return pref[b] - pref[a]
+		}
+
+		// Fit as many words as possible using binary search over prefix sums.
+		lo, hi := 1, len(rem)
+		if wW[0] > width {
+			// Defensive: should be handled above.
+			lines = append(lines, rem[0])
+			*lineIdxPtr++
+			i++
+			continue
+		}
+		for lo <= hi {
+			mid := (lo + hi) >> 1
+			if widthOf(0, mid) <= width {
+				lo = mid + 1
+			} else {
+				hi = mid - 1
+			}
+		}
+		count := hi
+		line := joinWithSpaces(rem[:count])
+		lines = append(lines, line)
 		*lineIdxPtr++
-		i++
+		i += count
 	}
+
 	return lines
 }
 
-// wrapParaBySymbolsScaled wraps text by character (rune) count
-// when word-level wrapping is not desired or possible.
-//
-// It appends a wrapSymbol (e.g. '-') at the break point
-// if the next character continues the word.
+// wrapParaBySymbolsScaled wraps a paragraph by grapheme clusters.
+// It optionally appends wrapSymbol at a break if the next cluster continues a word.
 func (t *Text) wrapParaBySymbolsScaled(p string, lineIdxPtr *int) []string {
 	var lines []string
-	runes := []rune(p)
+
+	clusters, offs := splitGraphemes(p)
+	if len(clusters) == 0 {
+		*lineIdxPtr++
+		return []string{""}
+	}
+
+	cache := make(map[*render.Font]map[string]float64)
+	measure := func(f *render.Font, s string) float64 {
+		if f == nil || s == "" {
+			return 0
+		}
+		m, ok := cache[f]
+		if !ok {
+			m = make(map[string]float64)
+			cache[f] = m
+		}
+		if w, ok := m[s]; ok {
+			return w
+		}
+		w, _ := f.MeasureString(s)
+		if math.IsNaN(w) || w < 0 {
+			w = 0
+		}
+		m[s] = w
+		return w
+	}
+
 	start := 0
+	for start < len(clusters) {
+		f := t.fontForLine(*lineIdxPtr)
+		width := t.maxWidth
 
-	for start < len(runes) {
-		lf := t.fontForLine(*lineIdxPtr)
-		width := t.lineWidth()
-
-		end := start
-		for end < len(runes) {
-			cand := string(runes[start : end+1])
-			if w, _ := lf.MeasureString(cand); w <= width {
-				end++
-				continue
+		// Binary search the largest prefix [start:end) that fits.
+		lo, hi := start+1, len(clusters)
+		best := start
+		for lo <= hi {
+			mid := (lo + hi) >> 1
+			cand := p[offs[start]:offs[mid]]
+			if measure(f, cand) <= width {
+				best = mid
+				lo = mid + 1
+			} else {
+				hi = mid - 1
 			}
-			break
 		}
 
+		// If nothing fits under this font, force 1 cluster and move on.
+		end := best
 		if end == start {
-			lines = append(lines, string(runes[start]))
+			end = start + 1
+		}
+
+		line := p[offs[start]:offs[end]]
+
+		// Append wrapSymbol at break if the next cluster continues a word boundary.
+		if end < len(clusters) && t.wrapSymbol != "" {
+			prevLast := lastBaseRune(line)
+			nextFirst := firstBaseRune(clusters[end])
+			if isWordBaseRune(prevLast) && isWordBaseRune(nextFirst) {
+				// Ensure line+wrapSymbol still fits. If not, shorten by one cluster if possible.
+				if measure(f, line+t.wrapSymbol) > width && end > start+1 {
+					end--
+					line = p[offs[start]:offs[end]]
+				}
+				if measure(f, line+t.wrapSymbol) <= width {
+					line += t.wrapSymbol
+				}
+			}
+		}
+
+		lines = append(lines, trimRightSpacesNBSP(line))
+		*lineIdxPtr++
+		start = end
+	}
+
+	return lines
+}
+
+// splitLongTokenProgressive splits a single overlong token by grapheme clusters,
+// producing a sequence of lines, each fitting under the current line font.
+// It appends wrapSymbol at internal breaks when splitting inside a word.
+//
+// Contract:
+//   - If a single grapheme cluster is wider than maxWidth, that cluster is yielded raw.
+//     The caller is responsible for clipping or downstream scaling.
+func (t *Text) splitLongTokenProgressive(token string, lineIdxPtr *int, measure func(*render.Font, string) float64) []string {
+	var out []string
+	if token == "" {
+		return out
+	}
+
+	clusters, offs := splitGraphemes(token)
+	start := 0
+	for start < len(clusters) {
+		f := t.fontForLine(*lineIdxPtr)
+		width := t.maxWidth
+
+		// If even a single cluster does not fit, yield it raw to avoid infinite loop.
+		if measure(f, token[offs[start]:offs[start+1]]) > width {
+			out = append(out, token[offs[start]:offs[start+1]])
 			*lineIdxPtr++
 			start++
 			continue
 		}
 
-		line := string(runes[start:end])
-		if end < len(runes) && !strings.HasSuffix(line, " ") && t.wrapSymbol != "" {
-			line += t.wrapSymbol
+		// Binary search the largest prefix that fits; consider room for wrapSymbol if we will split.
+		lo, hi := start+1, len(clusters)
+		best := start + 1
+		for lo <= hi {
+			mid := (lo + hi) >> 1
+			cand := token[offs[start]:offs[mid]]
+			needSuffix := mid < len(clusters)
+			if needSuffix && t.wrapSymbol != "" {
+				prevLast := lastBaseRune(cand)
+				nextFirst := firstBaseRune(clusters[mid])
+				if isWordBaseRune(prevLast) && isWordBaseRune(nextFirst) {
+					cand += t.wrapSymbol
+				}
+			}
+			if measure(f, cand) <= width {
+				best = mid
+				lo = mid + 1
+			} else {
+				hi = mid - 1
+			}
 		}
-		lines = append(lines, strings.TrimRight(line, " "))
+
+		end := best
+		line := token[offs[start]:offs[end]]
+
+		// Attach wrapSymbol at internal break if it still fits and is a word boundary.
+		if end < len(clusters) && t.wrapSymbol != "" {
+			prevLast := lastBaseRune(line)
+			nextFirst := firstBaseRune(clusters[end])
+			if isWordBaseRune(prevLast) && isWordBaseRune(nextFirst) && measure(f, line+t.wrapSymbol) <= width {
+				line += t.wrapSymbol
+			}
+		}
+
+		out = append(out, line)
 		*lineIdxPtr++
 		start = end
 	}
-	return lines
-}
 
-// breakLongTokenWithFont splits a single overlong word or token
-// into smaller segments that fit within maxWidth,
-// optionally appending a wrapSymbol at each break.
-func (t *Text) breakLongTokenWithFont(token string, lf *render.Font, width float64) []string {
-	var out []string
-	var buf string
-	for _, r := range token {
-		cand := buf + string(r)
-		if w, _ := lf.MeasureString(cand); w <= width {
-			buf = cand
-			continue
-		}
-		if buf != "" && t.wrapSymbol != "" {
-			buf += t.wrapSymbol
-		}
-		out = append(out, buf)
-		buf = string(r)
-	}
-	if buf != "" {
-		out = append(out, buf)
-	}
 	return out
 }
 
-// autoSpacing estimates inter-line spacing multiplier based on
-// average fill ratio, font scaling, and adaptive density heuristics.
+// autoSpacing estimates inter-line spacing multiplier based on average fill ratio,
+// font scaling, and adaptive density heuristics.
+// Returns a clamped multiplier in [spacingMin, spacingMax].
 //
-// It dynamically balances compactness and legibility depending
-// on how much text fills the maximum width and how the font size scales.
+// Normalization:
+// - Averages are computed over the number of lines actually measured to avoid bias.
 func (t *Text) autoSpacing(lines []string) float64 {
 	const (
 		fillMin     = 0.35
@@ -232,63 +385,179 @@ func (t *Text) autoSpacing(lines []string) float64 {
 	}
 
 	var totalWidth, totalScale float64
+	var countW, countS int
+
 	for i, s := range lines {
 		lf := t.fontForLine(i)
+		if lf == nil {
+			continue
+		}
 		if w, _ := lf.MeasureString(s); !math.IsNaN(w) {
-			totalWidth += math.Max(w, 0)
+			if w < 0 {
+				w = 0
+			}
+			totalWidth += w
+			countW++
 		}
 		if curPt := lf.HeightPt(); curPt > 0 {
 			totalScale += curPt / basePt
+			countS++
 		}
 	}
 
-	n := float64(len(lines))
-	if n == 0 {
-		return 1.0
+	var fill float64 = 1.0
+	if countW > 0 {
+		fill = geom.ClampF64(totalWidth/(t.maxWidth*float64(countW)), fillMin, fillMax)
 	}
-
-	fill := geom.ClampF64(totalWidth/(t.maxWidth*n), fillMin, fillMax)
 	fillT := (fill - fillMin) / (fillMax - fillMin)
 	base := geom.Lerp(baseSparse, baseDense, fillT)
 
-	avgScale := geom.ClampF64(totalScale/n, scaleMin, scaleMax)
+	var avgScale float64 = 1.0
+	if countS > 0 {
+		avgScale = geom.ClampF64(totalScale/float64(countS), scaleMin, scaleMax)
+	}
 	atten := geom.ClampF64(1.0-scaleWeight*(1.0-avgScale), attenMin, attenMax)
 
 	return geom.ClampF64(base*atten, spacingMin, spacingMax)
 }
 
-// appendEllipsisRunes trims the final line of text to fit an ellipsis character
-// ("…") within maxWidth, preserving UTF-8 correctness when slicing runes.
-//
-// It ensures the ellipsis appears even when truncation removes the entire line.
-func appendEllipsisRunes(lines []string, f *render.Font, maxWidth float64) []string {
+// appendEllipsisGraphemes trims the final line so that an ellipsis ("…") fits.
+// It removes text by grapheme clusters to avoid breaking composite glyphs.
+// If even a single ellipsis does not fit, the line is left as-is.
+// Trailing ASCII spaces and NBSP are trimmed before appending.
+func appendEllipsisGraphemes(lines []string, f *render.Font, maxWidth float64) []string {
 	const ellipsis = "…"
-	if len(lines) == 0 {
+	if len(lines) == 0 || f == nil {
 		return lines
 	}
 
 	lastIdx := len(lines) - 1
-	last := lines[lastIdx]
+	last := trimRightSpacesNBSP(lines[lastIdx])
 
+	// If it already fits with the ellipsis, append and return.
 	if w, _ := f.MeasureString(last + ellipsis); w <= maxWidth {
 		lines[lastIdx] = last + ellipsis
 		return lines
 	}
 
-	for last != "" {
-		_, size := utf8.DecodeLastRuneInString(last)
-		if size <= 0 {
-			break
-		}
-		last = last[:len(last)-size]
-		if w, _ := f.MeasureString(last + ellipsis); w <= maxWidth {
-			lines[lastIdx] = last + ellipsis
+	// Remove by grapheme clusters from the end until it fits.
+	grs, offs := splitGraphemes(last)
+	for len(grs) > 0 {
+		grs = grs[:len(grs)-1]
+		cut := last[:offs[len(grs)]]
+		if w, _ := f.MeasureString(cut + ellipsis); w <= maxWidth {
+			lines[lastIdx] = cut + ellipsis
 			return lines
 		}
 	}
 
+	// As a fallback, try ellipsis alone.
 	if w, _ := f.MeasureString(ellipsis); w <= maxWidth {
 		lines[lastIdx] = ellipsis
 	}
 	return lines
+}
+
+// normalizeNewlines converts CRLF and CR to LF.
+func normalizeNewlines(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	return s
+}
+
+// splitGraphemes returns grapheme clusters and their string offsets.
+// Offsets are len-granular byte indices into the original string.
+func splitGraphemes(s string) (clusters []string, offsets []int) {
+	g := uniseg.NewGraphemes(s)
+	offsets = append(offsets, 0)
+	for g.Next() {
+		cl := g.Str()
+		clusters = append(clusters, cl)
+		offsets = append(offsets, offsets[len(offsets)-1]+len(cl))
+	}
+	return clusters, offsets
+}
+
+// splitWordsPreserveNBSP splits by ASCII space and TAB,
+// preserving NBSP (U+00A0) inside tokens and collapsing runs of separators.
+func splitWordsPreserveNBSP(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var out []string
+	start := -1
+	for i, r := range s {
+		sep := r == ' ' || r == '\t'
+		if sep {
+			if start >= 0 {
+				out = append(out, s[start:i])
+				start = -1
+			}
+			continue
+		}
+		if start < 0 {
+			start = i
+		}
+	}
+	if start >= 0 {
+		out = append(out, s[start:])
+	}
+	return out
+}
+
+// isWordBaseRune reports letters or digits only for base runes.
+func isWordBaseRune(r rune) bool {
+	if r <= 0 {
+		return false
+	}
+	return unicode.IsLetter(r) || unicode.IsNumber(r)
+}
+
+// lastBaseRune finds the last non-mark, non-format rune in s.
+// It skips Mn/Me/Cf trailing marks to reach the base character.
+func lastBaseRune(s string) rune {
+	for len(s) > 0 {
+		r, size := utf8.DecodeLastRuneInString(s)
+		if r == utf8.RuneError && size == 1 {
+			s = s[:len(s)-1]
+			continue
+		}
+		if !(unicode.Is(unicode.Mn, r) || unicode.Is(unicode.Me, r) || unicode.Is(unicode.Cf, r)) {
+			return r
+		}
+		s = s[:len(s)-size]
+	}
+	return -1
+}
+
+// firstBaseRune finds the first non-mark, non-format rune in s.
+func firstBaseRune(s string) rune {
+	for len(s) > 0 {
+		r, size := utf8.DecodeRuneInString(s)
+		if r == utf8.RuneError && size == 1 {
+			s = s[size:]
+			continue
+		}
+		if !(unicode.Is(unicode.Mn, r) || unicode.Is(unicode.Me, r) || unicode.Is(unicode.Cf, r)) {
+			return r
+		}
+		s = s[size:]
+	}
+	return -1
+}
+
+// trimRightSpacesNBSP trims trailing ASCII spaces and NBSP.
+func trimRightSpacesNBSP(s string) string {
+	// Trim ASCII space.
+	s = strings.TrimRight(s, " ")
+	// Trim NBSP explicitly.
+	for len(s) > 0 {
+		r, size := utf8.DecodeLastRuneInString(s)
+		if r == '\u00A0' {
+			s = s[:len(s)-size]
+			continue
+		}
+		break
+	}
+	return s
 }

@@ -26,22 +26,21 @@ func TestInstructionText(t *testing.T) {
 			name: "gradient_fill_with_shadow",
 			setup: func(t *testing.T, c *instructions.Layer) {
 				c.LoadInstructions(
-					instructions.NewRectangle(0, 150, 250, 200).SetFillColor(bg),
 					instructions.NewText(
 						"1234567890 glimo Test Glimo Test Glimo Test Glimo Test Glimo Test Glimo Test Glimo Test Glimo Test Glimo Test",
 						0, 150, font,
 					).
 						SetColorPattern(
-							colors.NewLinearGradientWithBlend(0, 140, 1000, 140, colors.BlendExclusion, 1).
+							colors.NewLinearGradientWithBlend(0, 140, 1000, 140, colors.BlendNormal, 1).
 								AddColorStop(0, colors.Amethyst).
 								AddColorStop(1, colors.Pumpkin),
 						).
 						AddEffect(effects.NewDropShadow(0, 4, 4, 0, colors.Red, 1)).
 						SetAlign(instructions.AlignTextCenter).
 						SetMaxWidth(1000).
-						SetMaxLines(2).
-						SetWrapMode(instructions.WrapBySymbol).
-						SetScaleStep(-12),
+						SetMaxLines(3).
+						SetWrapMode(instructions.WrapByWord).
+						SetScaleStep(-24),
 				)
 			},
 		},
