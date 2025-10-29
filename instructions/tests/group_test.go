@@ -7,6 +7,7 @@ import (
 
 	"github.com/Krispeckt/glimo/colors"
 	"github.com/Krispeckt/glimo/instructions"
+	"github.com/Krispeckt/glimo/internal/render"
 	"github.com/stretchr/testify/require"
 )
 
@@ -30,6 +31,8 @@ func TestGroup_Size(t *testing.T) {
 }
 
 func TestGroup_DrawAndExport(t *testing.T) {
+	font := render.MustLoadFont("testdata/montserrat.ttf", 48)
+
 	type testCase struct {
 		name  string
 		setup func(*instructions.Group)
@@ -127,13 +130,27 @@ func TestGroup_DrawAndExport(t *testing.T) {
 				)
 			},
 		},
+		{
+			name: "text_test",
+			setup: func(g *instructions.Group) {
+				black := colors.RGBA(0, 0, 0, 128)
+				// Intentional negative coords; Group uses size union, so part may clip.
+				g.AddInstructions(
+					instructions.NewRectangle(0, 0, 500, 500).
+						SetFillColor(colors.WhiteSmoke),
+					instructions.NewRectangle(10, 10, 400, 400).
+						SetFillColor(colors.Pumpkin),
+					instructions.NewText("Glimo Test", 20, 20, font).
+						SetSolidColor(black),
+				)
+			},
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Prepare group and layer
 			g := instructions.NewGroup()
-			g.SetMode(instructions.FrameMode)
 			g.SetPosition(50, 50)
 			require.NotNil(t, g)
 			tc.setup(g)

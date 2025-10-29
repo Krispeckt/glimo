@@ -150,10 +150,6 @@ func NewAutoLayout(x, y int, style ContainerStyle) *AutoLayout {
 // queried and updated automatically.
 func (al *AutoLayout) Add(s Shape, st ItemStyle) *AutoLayout {
 	n := &node{shape: s, st: st}
-
-	if g, ok := s.(*Group); ok {
-		g.SetMode(FrameMode)
-	}
 	if bs, ok := s.(BoundedShape); ok {
 		n.meas = bs
 		n.pos = bs
