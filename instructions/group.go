@@ -119,15 +119,14 @@ func cloneBaseTo(bounds image.Rectangle, src *image.RGBA) *image.RGBA {
 	return acc
 }
 
-// Draw renders shapes sequentially onto overlay.
-// Shapes are drawn in the order they were added.
-// Color math uses a mirrored draw onto a private evolving base via region copy.
+// Draw renders shapes sequentially to an offscreen target, then blits once into overlay.
+// Base is mirrored in an evolving copy to keep correct color math on overlaps.
 func (g *Group) Draw(base, overlay *image.RGBA) {
 	if g == nil || overlay == nil || len(g.shapes) == 0 {
 		return
 	}
 
-	// Resolve frame rect.
+	// Frame rect.
 	var frameRect image.Rectangle
 	if g.w > 0 && g.h > 0 {
 		frameRect = image.Rect(g.x, g.y, g.x+g.w, g.y+g.h)
@@ -143,23 +142,16 @@ func (g *Group) Draw(base, overlay *image.RGBA) {
 		return
 	}
 
-	// Select target surface and allocate evolving base.
-	var target *image.RGBA
-	var acc *image.RGBA
-	if g.clip {
-		// Work only on the visible window to reduce memory and bandwidth.
-		target = image.NewRGBA(visible)
-		acc = cloneBaseTo(visible, base)
-	} else {
-		// Draw directly to overlay; keep a full-size base mirror.
-		target = overlay
-		acc = cloneBaseTo(dst, base)
-	}
+	// Offscreen target always. Final image appears on overlay only once.
+	target := image.NewRGBA(visible)
+
+	// Evolving base mirror limited to visible area.
+	acc := cloneBaseTo(visible, base)
 
 	offX, offY := g.x, g.y
-	var dirty image.Rectangle // union of changed regions for final blit when clip=true
+	var dirty image.Rectangle // union of changed regions in visible space
 
-	// Draw shapes sequentially with visibility culling.
+	// Draw shapes in order.
 	for _, s := range g.shapes {
 		if s == nil {
 			continue
@@ -176,37 +168,33 @@ func (g *Group) Draw(base, overlay *image.RGBA) {
 		}
 
 		abs := image.Rect(sx+offX, sy+offY, sx+offX+sw, sy+offY+sh)
-		// Target bounds are either overlay.Bounds() or visible.
-		targetBounds := target.Bounds()
-		changed := abs.Intersect(targetBounds)
+		changed := abs.Intersect(visible)
 		if changed.Empty() {
 			continue
 		}
 
-		// Temporary offset.
+		// Temporary offset to absolute coords.
 		s.SetPosition(sx+offX, sy+offY)
 
-		// Single draw using the evolving base.
+		// Single draw onto offscreen using evolving base.
 		s.Draw(acc, target)
 
-		// Restore position.
+		// Restore local coords.
 		s.SetPosition(sx, sy)
 
-		// Mirror updated pixels into the evolving base by copying only the changed region.
+		// Mirror updated region into base mirror.
 		draw.Draw(acc, changed, target, changed.Min, draw.Src)
 
-		// Track union for final blit if clipping.
-		if g.clip {
-			if dirty.Empty() {
-				dirty = changed
-			} else {
-				dirty = dirty.Union(changed)
-			}
+		// Track union for final blit.
+		if dirty.Empty() {
+			dirty = changed
+		} else {
+			dirty = dirty.Union(changed)
 		}
 	}
 
-	// Apply clip by copying only the union of changed pixels to the overlay.
-	if g.clip && !dirty.Empty() {
+	// One final blit to overlay. If nothing изменилось — нет копирования.
+	if !dirty.Empty() {
 		draw.Draw(overlay, dirty, target, dirty.Min, draw.Over)
 	}
 }
