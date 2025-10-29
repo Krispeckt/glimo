@@ -9,47 +9,31 @@ import (
 	"golang.org/x/image/draw"
 )
 
-// ContainerMode defines Figma-like container behavior.
-type ContainerMode int
-
-const (
-	// GroupMode : children use direct overlay coordinates. No group offset applied.
-	GroupMode ContainerMode = iota
-	// FrameMode : children use local coordinates of the frame and are offset by (g.x, g.y).
-	FrameMode
-)
-
-// Group represents a collection of drawable shapes rendered as a composite.
+// Group represents a frame-like container of drawable shapes rendered as a composite.
+// Children use local coordinates and are offset by (x, y). Optional clipping to the frame.
 type Group struct {
-	x, y   int           // Frame top-left (used only in FrameMode)
-	w, h   int           // Frame size; if 0, computed from content bounds (FrameMode)
-	clip   bool          // Clip to frame rect in FrameMode
-	mode   ContainerMode // FrameMode or GroupMode
+	x, y   int  // Frame top-left
+	w, h   int  // Frame size; if 0, computed from content bounds
+	clip   bool // Clip to frame rect
 	shapes []BoundedShape
 }
 
-// NewGroup creates a new Group with GroupMode by default.
-func NewGroup() *Group { return &Group{mode: GroupMode} }
+// NewGroup creates a new Group with frame semantics by default.
+func NewGroup() *Group { return &Group{} }
 
-// Position returns the current frame position (relevant in FrameMode).
+// Position returns the current frame position.
 func (g *Group) Position() (int, int) { return g.x, g.y }
 
-// SetPosition sets frame position (relevant in FrameMode).
+// SetPosition sets frame position.
 func (g *Group) SetPosition(x, y int) { g.x, g.y = x, y }
 
 // SetPositionChain sets position and returns the group for chaining.
 func (g *Group) SetPositionChain(x, y int) *Group { g.x, g.y = x, y; return g }
 
-// SetMode sets container mode.
-func (g *Group) SetMode(m ContainerMode) *Group { g.mode = m; return g }
-
-// Mode returns container mode.
-func (g *Group) Mode() ContainerMode { return g.mode }
-
-// SetFrameSize sets explicit frame size for FrameMode. Zero means auto from content.
+// SetFrameSize sets explicit frame size. Zero means auto from content.
 func (g *Group) SetFrameSize(w, h int) *Group { g.w, g.h = w, h; return g }
 
-// SetClip enables or disables clipping to the frame rect in FrameMode.
+// SetClip enables or disables clipping to the frame rect.
 func (g *Group) SetClip(clip bool) *Group { g.clip = clip; return g }
 
 // AddInstruction adds a single shape.
@@ -79,6 +63,7 @@ func (g *Group) Clear() {
 }
 
 // bounds computes union of child bounds using each shape's Position() and Size().
+// Coordinates are local to the frame (no offset by g.x, g.y).
 func (g *Group) bounds() (r image.Rectangle, ok bool) {
 	if g == nil || len(g.shapes) == 0 {
 		return
@@ -91,6 +76,9 @@ func (g *Group) bounds() (r image.Rectangle, ok bool) {
 		sx, sy := s.Position()
 		w := int(math.Ceil(math.Max(0, s.Size().Width())))
 		h := int(math.Ceil(math.Max(0, s.Size().Height())))
+		if w == 0 || h == 0 {
+			continue
+		}
 		sr := image.Rect(sx, sy, sx+w, sy+h)
 		if first {
 			r, first = sr, false
@@ -103,13 +91,12 @@ func (g *Group) bounds() (r image.Rectangle, ok bool) {
 }
 
 // Size returns composite size.
-// - FrameMode: explicit frame size if set, otherwise content bounds size.
-// - GroupMode: content bounds size.
+// - Explicit frame size if set, otherwise content bounds size.
 func (g *Group) Size() *geom.Size {
 	if g == nil {
 		return geom.NewSize(0, 0)
 	}
-	if g.mode == FrameMode && g.w > 0 && g.h > 0 {
+	if g.w > 0 && g.h > 0 {
 		return geom.NewSize(float64(g.w), float64(g.h))
 	}
 	r, ok := g.bounds()
@@ -119,57 +106,107 @@ func (g *Group) Size() *geom.Size {
 	return geom.NewSize(float64(r.Dx()), float64(r.Dy()))
 }
 
-// Draw renders shapes onto overlay according to the container mode.
+// cloneBaseTo allocates an RGBA with given bounds and copies overlapping pixels from src.
+func cloneBaseTo(bounds image.Rectangle, src *image.RGBA) *image.RGBA {
+	acc := image.NewRGBA(bounds)
+	if src == nil {
+		return acc
+	}
+	copyRect := bounds.Intersect(src.Bounds())
+	if !copyRect.Empty() {
+		draw.Draw(acc, copyRect, src, copyRect.Min, draw.Src)
+	}
+	return acc
+}
+
+// Draw renders shapes sequentially onto overlay.
+// Shapes are drawn in the order they were added.
+// Color math uses a mirrored draw onto a private evolving base via region copy.
 func (g *Group) Draw(base, overlay *image.RGBA) {
 	if g == nil || overlay == nil || len(g.shapes) == 0 {
 		return
 	}
 
-	// Determine target rect and offset.
-	rect := overlay.Bounds()
-	offX, offY := 0, 0
-
-	if g.mode == FrameMode {
-		// Frame rect: explicit or from content bounds, then offset by frame position.
-		if g.w > 0 && g.h > 0 {
-			rect = image.Rect(g.x, g.y, g.x+g.w, g.y+g.h)
-		} else if local, ok := g.bounds(); ok {
-			rect = local.Add(image.Pt(g.x, g.y))
-		} else {
-			rect = image.Rect(g.x, g.y, g.x, g.y) // empty
-		}
-		offX, offY = g.x, g.y
+	// Resolve frame rect.
+	var frameRect image.Rectangle
+	if g.w > 0 && g.h > 0 {
+		frameRect = image.Rect(g.x, g.y, g.x+g.w, g.y+g.h)
+	} else if local, ok := g.bounds(); ok {
+		frameRect = local.Add(image.Pt(g.x, g.y))
 	} else {
-		// GroupMode: direct coordinates, no offset.
-		rect = overlay.Bounds()
+		return
 	}
 
-	// Composite into tmp, then blit into overlay within rect.
-	tmp := image.NewRGBA(overlay.Bounds())
+	dst := overlay.Bounds()
+	visible := frameRect.Intersect(dst)
+	if visible.Empty() {
+		return
+	}
 
+	// Select target surface and allocate evolving base.
+	var target *image.RGBA
+	var acc *image.RGBA
+	if g.clip {
+		// Work only on the visible window to reduce memory and bandwidth.
+		target = image.NewRGBA(visible)
+		acc = cloneBaseTo(visible, base)
+	} else {
+		// Draw directly to overlay; keep a full-size base mirror.
+		target = overlay
+		acc = cloneBaseTo(dst, base)
+	}
+
+	offX, offY := g.x, g.y
+	var dirty image.Rectangle // union of changed regions for final blit when clip=true
+
+	// Draw shapes sequentially with visibility culling.
 	for _, s := range g.shapes {
 		if s == nil {
 			continue
 		}
+		sz := s.Size()
+		if sz == nil {
+			continue
+		}
 		sx, sy := s.Position()
-		// Apply offset only in FrameMode.
+		sw := int(math.Ceil(math.Max(0, sz.Width())))
+		sh := int(math.Ceil(math.Max(0, sz.Height())))
+		if sw == 0 || sh == 0 {
+			continue
+		}
+
+		abs := image.Rect(sx+offX, sy+offY, sx+offX+sw, sy+offY+sh)
+		// Target bounds are either overlay.Bounds() or visible.
+		targetBounds := target.Bounds()
+		changed := abs.Intersect(targetBounds)
+		if changed.Empty() {
+			continue
+		}
+
+		// Temporary offset.
 		s.SetPosition(sx+offX, sy+offY)
 
-		layer := image.NewRGBA(overlay.Bounds())
-		s.Draw(base, layer)
+		// Single draw using the evolving base.
+		s.Draw(acc, target)
 
-		// Restore original position.
+		// Restore position.
 		s.SetPosition(sx, sy)
 
-		draw.Draw(tmp, overlay.Bounds(), layer, layer.Bounds().Min, draw.Over)
+		// Mirror updated pixels into the evolving base by copying only the changed region.
+		draw.Draw(acc, changed, target, changed.Min, draw.Src)
+
+		// Track union for final blit if clipping.
+		if g.clip {
+			if dirty.Empty() {
+				dirty = changed
+			} else {
+				dirty = dirty.Union(changed)
+			}
+		}
 	}
 
-	// Clip to frame bounds in FrameMode if requested by copying only rect.
-	// In GroupMode rect == overlay.Bounds(), so this is a full copy.
-	if g.mode == FrameMode && g.clip {
-		draw.Draw(overlay, rect, tmp, rect.Min, draw.Over)
-	} else {
-		// No extra clip: draw full composite.
-		draw.Draw(overlay, overlay.Bounds(), tmp, tmp.Bounds().Min, draw.Over)
+	// Apply clip by copying only the union of changed pixels to the overlay.
+	if g.clip && !dirty.Empty() {
+		draw.Draw(overlay, dirty, target, dirty.Min, draw.Over)
 	}
 }
