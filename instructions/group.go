@@ -119,8 +119,6 @@ func cloneBaseTo(bounds image.Rectangle, src *image.RGBA) *image.RGBA {
 	return acc
 }
 
-// Draw renders shapes sequentially to an offscreen target, then blits once into overlay.
-// Base is mirrored in an evolving copy to keep correct color math on overlaps.
 func (g *Group) Draw(base, overlay *image.RGBA) {
 	if g == nil || overlay == nil || len(g.shapes) == 0 {
 		return
@@ -138,7 +136,7 @@ func (g *Group) Draw(base, overlay *image.RGBA) {
 
 	dst := overlay.Bounds()
 
-	// Work window: full dst when no clip, otherwise visible part of the frame.
+	// Work window: full dst when no clip, otherwise frame∩dst.
 	work := dst
 	if g.clip {
 		work = frameRect.Intersect(dst)
@@ -147,50 +145,36 @@ func (g *Group) Draw(base, overlay *image.RGBA) {
 		}
 	}
 
-	// Offscreen target always. Final image appears on overlay only once.
 	target := image.NewRGBA(work)
-
-	// Evolving base mirror limited to work area.
 	acc := cloneBaseTo(work, base)
 
-	offX, offY := g.x, g.y
-	var dirty image.Rectangle // union of changed regions in work space
+	draw.Draw(target, target.Bounds(), acc, acc.Bounds().Min, draw.Src)
 
-	// Draw shapes in order.
+	offX, offY := g.x, g.y
+	var dirty image.Rectangle
+
 	for _, s := range g.shapes {
-		if s == nil {
-			continue
-		}
-		sz := s.Size()
-		if sz == nil {
+		if s == nil || s.Size() == nil {
 			continue
 		}
 		sx, sy := s.Position()
-		sw := int(math.Ceil(math.Max(0, sz.Width())))
-		sh := int(math.Ceil(math.Max(0, sz.Height())))
+		sw := int(math.Ceil(math.Max(0, s.Size().Width())))
+		sh := int(math.Ceil(math.Max(0, s.Size().Height())))
 		if sw == 0 || sh == 0 {
 			continue
 		}
-
 		abs := image.Rect(sx+offX, sy+offY, sx+offX+sw, sy+offY+sh)
 		changed := abs.Intersect(work)
 		if changed.Empty() {
 			continue
 		}
 
-		// Temporary offset to absolute coords.
 		s.SetPosition(sx+offX, sy+offY)
-
-		// Single draw onto offscreen using evolving base.
 		s.Draw(acc, target)
-
-		// Restore local coords.
 		s.SetPosition(sx, sy)
 
-		// Mirror updated region into base mirror.
 		draw.Draw(acc, changed, target, changed.Min, draw.Src)
 
-		// Track union for final blit.
 		if dirty.Empty() {
 			dirty = changed
 		} else {
@@ -198,8 +182,7 @@ func (g *Group) Draw(base, overlay *image.RGBA) {
 		}
 	}
 
-	// One final blit to overlay.
 	if !dirty.Empty() {
-		draw.Draw(overlay, dirty, target, dirty.Min, draw.Over)
+		draw.Draw(overlay, dirty, target, dirty.Min, draw.Src)
 	}
 }
