@@ -137,19 +137,24 @@ func (g *Group) Draw(base, overlay *image.RGBA) {
 	}
 
 	dst := overlay.Bounds()
-	visible := frameRect.Intersect(dst)
-	if visible.Empty() {
-		return
+
+	// Work window: full dst when no clip, otherwise visible part of the frame.
+	work := dst
+	if g.clip {
+		work = frameRect.Intersect(dst)
+		if work.Empty() {
+			return
+		}
 	}
 
 	// Offscreen target always. Final image appears on overlay only once.
-	target := image.NewRGBA(visible)
+	target := image.NewRGBA(work)
 
-	// Evolving base mirror limited to visible area.
-	acc := cloneBaseTo(visible, base)
+	// Evolving base mirror limited to work area.
+	acc := cloneBaseTo(work, base)
 
 	offX, offY := g.x, g.y
-	var dirty image.Rectangle // union of changed regions in visible space
+	var dirty image.Rectangle // union of changed regions in work space
 
 	// Draw shapes in order.
 	for _, s := range g.shapes {
@@ -168,7 +173,7 @@ func (g *Group) Draw(base, overlay *image.RGBA) {
 		}
 
 		abs := image.Rect(sx+offX, sy+offY, sx+offX+sw, sy+offY+sh)
-		changed := abs.Intersect(visible)
+		changed := abs.Intersect(work)
 		if changed.Empty() {
 			continue
 		}
@@ -193,7 +198,7 @@ func (g *Group) Draw(base, overlay *image.RGBA) {
 		}
 	}
 
-	// One final blit to overlay. If nothing изменилось — нет копирования.
+	// One final blit to overlay.
 	if !dirty.Empty() {
 		draw.Draw(overlay, dirty, target, dirty.Min, draw.Over)
 	}
