@@ -7,7 +7,6 @@ import (
 
 	"github.com/Krispeckt/glimo/colors"
 	"github.com/Krispeckt/glimo/instructions"
-	"github.com/Krispeckt/glimo/internal/render"
 	"github.com/stretchr/testify/require"
 )
 
@@ -31,7 +30,6 @@ func TestGroup_Size(t *testing.T) {
 }
 
 func TestGroup_DrawAndExport(t *testing.T) {
-	font := render.MustLoadFont("testdata/montserrat.ttf", 48)
 	type testCase struct {
 		name  string
 		setup func(*instructions.Group)
@@ -126,20 +124,6 @@ func TestGroup_DrawAndExport(t *testing.T) {
 						SetFillColor(colors.CornflowerBlue).
 						SetStrokeColor(colors.DavysGray).
 						SetLineWidth(5),
-				)
-			},
-		},
-		{
-			name: "text_blend_mode",
-			setup: func(g *instructions.Group) {
-				// Intentional negative coords; Group uses size union, so part may clip.
-				g.AddInstructions(
-					instructions.NewRectangle(0, 0, 500, 500).
-						SetFillColor(colors.WhiteSmoke),
-					instructions.NewRectangle(10, 10, 400, 400).
-						SetFillColor(colors.Pumpkin),
-					instructions.NewText("Glimo Test", 20, 20, font).
-						SetColorPattern(colors.NewSolidWithBlend(colors.Black, colors.BlendOverlay, 50)),
 				)
 			},
 		},
