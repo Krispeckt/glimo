@@ -92,7 +92,9 @@ func (al *AutoLayout) buildLines(isRow bool, mainLimit, gx, gy int) []line {
 		effectiveLimit := mainLimit
 		if !autoHeightColumn && effectiveLimit > 0 {
 			// placeholder for future adjustments
-			effectiveLimit = 0
+			if effectiveLimit < 0 {
+				effectiveLimit = 0
+			}
 		}
 
 		// Wrap to a new line if needed.
