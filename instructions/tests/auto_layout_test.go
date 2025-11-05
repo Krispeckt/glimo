@@ -41,14 +41,13 @@ func newCanvases() (*image.RGBA, *image.RGBA) {
 }
 
 type itemCase struct {
-	name        string
-	w, h        int
-	style       instructions.ItemStyle
-	expectX     *int
-	expectY     *int
-	expectW     *int
-	expectH     *int
-	expectDraws *int
+	name    string
+	w, h    int
+	style   instructions.ItemStyle
+	expectX *int
+	expectY *int
+	expectW *int
+	expectH *int
 }
 
 type testCase struct {
