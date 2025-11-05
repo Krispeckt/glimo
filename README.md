@@ -21,17 +21,19 @@ go get github.com/krispeckt/glimo
 
 ## 🧩 Features
 
-- Drawing primitives: line, circle, rectangle, text, image
+- Drawing primitives: line, circle, rectangle, text, image (with extended functions)
 - Automatic layout
-- Layer management
-- Visual effects: shadows, transparency, masking
-- Support Blending Mode
+- Layer & frame management
+- Visual effects: drop shadow, inner shadow, blur, noise, texture
+- Support Blending Mode for colors
 
 ---
 
 ## 🧠 Project Structure
 
 ```tree
+├── go.mod
+├── go.sum
 ├── aliases.go
 ├── colors
 │   ├── aliases.go
@@ -48,18 +50,7 @@ go get github.com/krispeckt/glimo
 │   ├── layer_blur.go
 │   ├── noise.go
 │   └── texture.go
-├── go.mod
-├── go.sum
 └── instructions
-    ├── tests
-    │   ├── auto_layout_test.go
-    │   ├── circle_test.go
-    │   ├── help_test.go
-    │   ├── image_test.go
-    │   ├── line_test.go
-    │   ├── point_test.go
-    │   ├── rect_test.go
-    │   └── text_test.go
     ├── auto_layout.go
     ├── circle.go
     ├── image.go
@@ -88,10 +79,10 @@ import (
 
 func main() {
 	layer := instructions.NewLayer(800, 600)
-	layer.LoadInstructions([]instructions.Shape{
+	layer.LoadInstructions(
 		instructions.NewCircle(100, 100, 100).SetFillColor(colors.Red),
 		instructions.NewRectangle(100, 250, 200, 100).SetFillColor(colors.Amethyst),
-	})
+	)
 
 	err := layer.Export("output.png")
 	if err != nil {
@@ -100,6 +91,17 @@ func main() {
 }
 
 ```
+
+### 🖼️ Examples
+
+<div style="display: flex; flex-wrap: wrap; gap: 8px;">
+  <img src="instructions/tests/output/circle_nested.png" alt="Example 1" style="width: 32%; object-fit: contain;" />
+  <img src="instructions/tests/output/rect_nested.png" alt="Example 2" style="width: 32%; object-fit: contain;" />
+  <img src="instructions/tests/output/rect_rounded_corners.png" alt="Example 3" style="width: 32%; object-fit: contain;" />
+  <img src="instructions/tests/output/line_complex_chain.png" alt="Example 4" style="width: 32%; object-fit: contain;" />
+  <img src="instructions/tests/output/text_gradient_fill_with_shadow.png" alt="Example 5" style="width: 32%; object-fit: contain;" />
+  <img src="instructions/tests/output/text_solid_fill_text.png" alt="Example 6" style="width: 32%; object-fit: contain;" />
+</div>
 
 ---
 

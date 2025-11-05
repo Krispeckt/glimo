@@ -36,7 +36,9 @@ func LoadImage(path string) (image.Image, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open %q: %w", path, err)
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 
 	img, _, err := image.Decode(f)
 	if err != nil {
@@ -64,7 +66,9 @@ func ExportPNG(img image.Image, path string, level png.CompressionLevel) error {
 	if err != nil {
 		return fmt.Errorf("create %q: %w", path, err)
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 
 	return (&png.Encoder{CompressionLevel: level}).Encode(f, img)
 }
@@ -75,7 +79,9 @@ func ExportJPEG(img image.Image, path string, quality int) error {
 	if err != nil {
 		return fmt.Errorf("create %q: %w", path, err)
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 
 	return jpeg.Encode(f, img, &jpeg.Options{Quality: quality})
 }

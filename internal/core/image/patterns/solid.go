@@ -47,7 +47,6 @@ func NewSolidWithBlend(c Color, mode BlendMode, opacity float64) *Solid {
 // Returns the same Solid instance for method chaining.
 func (p *Solid) WithBlendMode(m BlendMode) *Solid {
 	p.mode = m
-	p.color.SetBlendMode(m)
 	return p
 }
 

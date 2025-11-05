@@ -257,12 +257,15 @@ type line struct {
 	base        int // total main-axis length (including margins; fixed gaps added during build)
 	cross       int // maximum cross-axis length (including margins)
 	skippedGaps int // count of ignored container gaps in this line
+	// crossUsed — the actually occupied cross size of the line after resolve/align/stretch,
+	// including margins. Used to compute correct inter-line offset and auto sizes.
+	crossUsed int
 }
 
 // computeInner calculates container content dimensions (inner width/height)
 // and returns padding offsets and gap spacing. Auto-sizing is resolved here
 // only as an estimate. Exact auto cross-size for wrapped content is resolved
-// later in layoutFlex after lines are built.
+// later in layoutFlex after lines are placed.
 func (al *AutoLayout) computeInner(isRow bool) (innerW, innerH, pl, pt, gx, gy int) {
 	cs := al.style
 
@@ -354,7 +357,7 @@ func (al *AutoLayout) buildLines(isRow bool, mainLimit, gx, gy int) []line {
 		// Compute the effective line limit, respecting auto-height column logic.
 		effectiveLimit := mainLimit
 		if !autoHeightColumn && effectiveLimit > 0 {
-			effectiveLimit -= 0 // keep consistent path, placeholder for future adjustments
+			effectiveLimit -= 0 // placeholder for future adjustments
 			if effectiveLimit < 0 {
 				effectiveLimit = 0
 			}
@@ -630,6 +633,8 @@ func (al *AutoLayout) placeLines(lines []line, isRow bool, innerW, innerH, pl, p
 
 		// Resolve cross sizes and positions per item.
 		lineCrossSize := ln.cross + extraPerLine
+		// Actually occupied cross size for this line after resolve/align/stretch.
+		lineCrossUsed := 0
 		mainCursor := offset
 
 		for idx, r := range recs {
@@ -674,6 +679,17 @@ func (al *AutoLayout) placeLines(lines []line, isRow bool, innerW, innerH, pl, p
 				}
 			}
 
+			// Track actually occupied cross size including margins.
+			if isRow {
+				if sc := sizeCross + r.mt + r.mb; sc > lineCrossUsed {
+					lineCrossUsed = sc
+				}
+			} else {
+				if sc := sizeCross + r.ml + r.mr; sc > lineCrossUsed {
+					lineCrossUsed = sc
+				}
+			}
+
 			// Final coordinates in container space.
 			if isRow {
 				x := al.x + pl + mainCursor + r.ml
@@ -711,8 +727,12 @@ func (al *AutoLayout) placeLines(lines []line, isRow bool, innerW, innerH, pl, p
 			}
 		}
 
-		// Move to next line.
-		crossOffset += lineCrossSize + gapCross
+		// Move to next line using the actually occupied cross size.
+		if lineCrossUsed < lineCrossSize {
+			lineCrossUsed = lineCrossSize
+		}
+		ln.crossUsed = lineCrossUsed
+		crossOffset += lineCrossUsed + gapCross
 	}
 }
 
@@ -761,7 +781,7 @@ func (al *AutoLayout) layoutFlex() (innerW, innerH int) {
 
 	lines := al.buildLines(isRow, mainLimit, gx, gy)
 
-	// --- Auto cross-size resolution ---
+	// Initial auto cross-size estimate before placement
 	// Row + auto Height: sum of line cross sizes + gaps.
 	if al.style.Height == 0 && isRow {
 		sum := 0
@@ -808,6 +828,28 @@ func (al *AutoLayout) layoutFlex() (innerW, innerH int) {
 
 	al.placeLines(lines, isRow, innerW, innerH, pl, pt, gx, gy)
 	al.positionAbsolute(innerW, innerH, pl, pt)
+
+	// --- Final auto-size correction using actually occupied cross sizes (sizeCross-aware) ---
+	if al.style.Height == 0 && isRow {
+		sum := 0
+		for i, ln := range lines {
+			sum += ln.crossUsed
+			if i < len(lines)-1 {
+				sum += gy
+			}
+		}
+		innerH = sum
+	}
+	if al.style.Width == 0 && !isRow {
+		sum := 0
+		for i, ln := range lines {
+			sum += ln.crossUsed
+			if i < len(lines)-1 {
+				sum += gx
+			}
+		}
+		innerW = sum
+	}
 
 	ptop, pright, pbottom, pleft := sum4(al.style.Padding)
 	al.w = innerW + pleft + pright

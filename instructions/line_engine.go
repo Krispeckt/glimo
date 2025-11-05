@@ -75,27 +75,3 @@ func (e *engine) joiner() raster.Joiner {
 	}
 	return nil
 }
-
-// stroke rasterizes the current stroke path using the provided painter.
-func (e *engine) stroke(painter raster.Painter) {
-	r := e.rasterizer
-	r.UseNonZeroWinding = true
-	r.Clear()
-	r.AddStroke(e.strokePath, geom.Fix(e.lineWidth), e.capper(), e.joiner())
-	r.Rasterize(painter)
-}
-
-// fill rasterizes the current fill path using the provided painter and fill rule.
-func (e *engine) fill(painter raster.Painter) {
-	path := e.fillPath
-	if e.hasCurrent {
-		path = make(raster.Path, len(e.fillPath))
-		copy(path, e.fillPath)
-		path.Add1(e.start.Fixed())
-	}
-	r := e.rasterizer
-	r.UseNonZeroWinding = e.fillRule == FillRuleWinding
-	r.Clear()
-	r.AddPath(path)
-	r.Rasterize(painter)
-}

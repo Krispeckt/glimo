@@ -163,13 +163,3 @@ func (e *InnerShadowEffect) Apply(dst *image.RGBA) {
 		}
 	}
 }
-
-// alphaAt safely samples the alpha channel of an RGBA image.
-// Returns 0 if the coordinates are outside the image bounds.
-func alphaAt(img *image.RGBA, x, y int) uint8 {
-	b := img.Bounds()
-	if x < b.Min.X || x >= b.Max.X || y < b.Min.Y || y >= b.Max.Y {
-		return 0
-	}
-	return img.Pix[img.PixOffset(x, y)+3]
-}

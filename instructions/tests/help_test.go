@@ -13,7 +13,10 @@ func mustLoadImage(t *testing.T, p string) image.Image {
 	t.Helper()
 	f, err := os.Open(p)
 	require.NoError(t, err)
-	defer f.Close()
+
+	defer func() {
+		_ = f.Close()
+	}()
 
 	img, _, err := image.Decode(f)
 	require.NoError(t, err)
