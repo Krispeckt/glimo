@@ -7,7 +7,7 @@ package instructions
 func (al *AutoLayout) computeInner(isRow bool) (innerW, innerH, pl, pt, gx, gy int) {
 	cs := al.style
 
-	// Estimate content size assuming a single line.
+	// Estimate content size from children in a single line.
 	natMain, natCross := 0, 0
 	count := 0
 	for _, n := range al.children {
@@ -48,8 +48,12 @@ func (al *AutoLayout) computeInner(isRow bool) (innerW, innerH, pl, pt, gx, gy i
 		}
 	}
 
-	innerW = clampNonNegative(innerW)
-	innerH = clampNonNegative(innerH)
+	if innerW < 0 {
+		innerW = 0
+	}
+	if innerH < 0 {
+		innerH = 0
+	}
 	return
 }
 
@@ -80,7 +84,7 @@ func (al *AutoLayout) buildLines(isRow bool, mainLimit, gx, gy int) []line {
 		}
 		baseMain, baseCross := baseMainCross(n, isRow)
 
-		// Tentative line length if this item is added.
+		// Compute tentative line length if this item is added.
 		itemWithGap := baseMain
 		if len(cur.items) > 0 {
 			if !n.st.IgnoreGapBefore {
@@ -88,10 +92,10 @@ func (al *AutoLayout) buildLines(isRow bool, mainLimit, gx, gy int) []line {
 			}
 		}
 
-		// Effective line limit, respecting auto-height column logic.
+		// Compute the effective line limit, respecting auto-height column logic.
 		effectiveLimit := mainLimit
 		if !autoHeightColumn && effectiveLimit > 0 {
-			// placeholder for future adjustments
+			effectiveLimit -= 0 // keep consistent path, placeholder for future adjustments
 			if effectiveLimit < 0 {
 				effectiveLimit = 0
 			}

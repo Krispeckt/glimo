@@ -148,6 +148,7 @@ func (al *AutoLayout) placeLines(lines []line, isRow bool, innerW, innerH, pl, p
 		// Distribute flex grow/shrink with remainder handling.
 		switch {
 		case flexFree > 0 && totalGrow > 0:
+			// First pass: floors.
 			floors := make([]int, len(recs))
 			fracs := make([]float64, len(recs))
 			sumFloors := 0
@@ -159,6 +160,7 @@ func (al *AutoLayout) placeLines(lines []line, isRow bool, innerW, innerH, pl, p
 				sumFloors += f
 			}
 			rem := flexFree - sumFloors
+			// Assign remainders by descending fractional parts.
 			idx := make([]int, len(recs))
 			for i := range idx {
 				idx[i] = i
@@ -253,8 +255,6 @@ func (al *AutoLayout) placeLines(lines []line, isRow bool, innerW, innerH, pl, p
 
 		// Resolve cross sizes and positions per item.
 		lineCrossSize := ln.cross + extraPerLine
-		// Actually occupied cross size for this line after resolve/align/stretch.
-		lineCrossUsed := 0
 		mainCursor := offset
 
 		for idx, r := range recs {
@@ -299,17 +299,6 @@ func (al *AutoLayout) placeLines(lines []line, isRow bool, innerW, innerH, pl, p
 				}
 			}
 
-			// Track actually occupied cross size including margins.
-			if isRow {
-				if sc := sizeCross + r.mt + r.mb; sc > lineCrossUsed {
-					lineCrossUsed = sc
-				}
-			} else {
-				if sc := sizeCross + r.ml + r.mr; sc > lineCrossUsed {
-					lineCrossUsed = sc
-				}
-			}
-
 			// Final coordinates in container space.
 			if isRow {
 				x := al.x + pl + mainCursor + r.ml
@@ -347,12 +336,8 @@ func (al *AutoLayout) placeLines(lines []line, isRow bool, innerW, innerH, pl, p
 			}
 		}
 
-		// Move to next line using the actually occupied cross size.
-		if lineCrossUsed < lineCrossSize {
-			lineCrossUsed = lineCrossSize
-		}
-		ln.crossUsed = lineCrossUsed
-		crossOffset += lineCrossUsed + gapCross
+		// Move to next line.
+		crossOffset += lineCrossSize + gapCross
 	}
 }
 
