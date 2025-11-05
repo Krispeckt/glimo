@@ -55,7 +55,6 @@ type NoiseEffect struct {
 	opacity   float64        // Blend strength of noise, range [0,1]
 	colorA    patterns.Color // Primary color for duo noise
 	colorB    patterns.Color // Secondary color for duo noise
-	blendMode string         // Reserved for future blend modes
 }
 
 // NewNoiseEffect creates a new NoiseEffect with the given type and density.

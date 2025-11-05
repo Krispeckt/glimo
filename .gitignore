@@ -28,7 +28,5 @@ go.work.sum
 .env
 
 # Editor/IDE
- .idea/
- .vscode/
-
-/instructions/tests/output
+.idea/
+.vscode/

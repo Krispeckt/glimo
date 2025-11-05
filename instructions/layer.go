@@ -51,7 +51,9 @@ func NewLayerFromImagePath(path string) (*Layer, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 
 	img, format, err := image.Decode(f)
 	if err != nil {
@@ -132,10 +134,10 @@ func (l *Layer) SetSize(w, h int) {
 		h = maxH
 	}
 
-	min := l.image.Rect.Min
+	rectMin := l.image.Rect.Min
 	l.image.Rect = image.Rectangle{
-		Min: min,
-		Max: image.Pt(min.X+w, min.Y+h),
+		Min: rectMin,
+		Max: image.Pt(rectMin.X+w, rectMin.Y+h),
 	}
 	l.size = geom.NewSize(float64(w), float64(h))
 }
