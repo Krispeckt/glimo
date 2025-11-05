@@ -95,15 +95,4 @@ type line struct {
 	base        int // total main-axis length (including margins; fixed gaps added during build)
 	cross       int // maximum cross-axis length (including margins)
 	skippedGaps int // count of ignored container gaps in this line
-	// crossUsed — the actually occupied cross size of the line after resolve/align/stretch,
-	// including margins. Used to compute correct inter-line offset and auto sizes.
-	crossUsed int
-}
-
-// clampNonNegative guards against negative sizes.
-func clampNonNegative(v int) int {
-	if v < 0 {
-		return 0
-	}
-	return v
 }

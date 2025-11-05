@@ -61,28 +61,6 @@ func (al *AutoLayout) layoutFlex() (innerW, innerH int) {
 	al.placeLines(lines, isRow, innerW, innerH, pl, pt, gx, gy)
 	al.positionAbsolute(innerW, innerH, pl, pt)
 
-	// Final auto-size correction using actually occupied cross sizes (sizeCross-aware).
-	if al.style.Height == 0 && isRow {
-		sum := 0
-		for i, ln := range lines {
-			sum += ln.crossUsed
-			if i < len(lines)-1 {
-				sum += gy
-			}
-		}
-		innerH = sum
-	}
-	if al.style.Width == 0 && !isRow {
-		sum := 0
-		for i, ln := range lines {
-			sum += ln.crossUsed
-			if i < len(lines)-1 {
-				sum += gx
-			}
-		}
-		innerW = sum
-	}
-
 	ptop, pright, pbottom, pleft := sum4(al.style.Padding)
 	al.w = innerW + pleft + pright
 	al.h = innerH + ptop + pbottom

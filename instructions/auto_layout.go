@@ -80,7 +80,7 @@ func (al *AutoLayout) Draw(base, overlay *image.RGBA) {
 	}
 }
 
-// ensureLayout computes a fresh layout if dirty or empty.
+// ensureLayout computes a fresh layout if it is marked dirty or empty.
 func (al *AutoLayout) ensureLayout() {
 	if al.dirty || (al.w == 0 && al.h == 0) {
 		al.layoutFlex()
