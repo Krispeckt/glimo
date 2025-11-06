@@ -6,53 +6,43 @@ package instructions
 // resolved later in layoutFlex after lines are placed.
 func (al *AutoLayout) computeInner(isRow bool) (innerW, innerH, pl, pt, gx, gy int) {
 	cs := al.style
-
-	// Estimate content size from children in a single line.
-	natMain, natCross := 0, 0
-	count := 0
-	for _, n := range al.children {
-		if n.st.Position == PosAbsolute {
-			continue
-		}
-		baseMain, baseCross := baseMainCross(n, isRow)
-		natMain += baseMain
-		if baseCross > natCross {
-			natCross = baseCross
-		}
-		count++
-	}
-
-	// Padding and gap.
 	pt, pr, pb, pl := sum4(cs.Padding)
 	gx, gy = int(cs.Gap.X), int(cs.Gap.Y)
 
-	// Resolve inner content box dimensions.
 	if cs.Width > 0 {
 		innerW = cs.Width - pl - pr
-	} else if isRow {
-		innerW = natMain
-		if count > 1 {
-			innerW += gx * (count - 1)
-		}
-	} else {
-		innerW = natCross
 	}
 	if cs.Height > 0 {
 		innerH = cs.Height - pt - pb
-	} else if isRow {
-		innerH = natCross
-	} else {
-		innerH = natMain
-		if count > 1 {
-			innerH += gy * (count - 1)
-		}
 	}
 
-	if innerW < 0 {
-		innerW = 0
-	}
-	if innerH < 0 {
-		innerH = 0
+	if cs.Width == 0 || cs.Height == 0 {
+		natMain, natCross, count := 0, 0, 0
+		for _, n := range al.children {
+			if n.st.Position == PosAbsolute {
+				continue
+			}
+			baseMain, baseCross := baseMainCross(n, isRow)
+			natMain += baseMain
+			if baseCross > natCross {
+				natCross = baseCross
+			}
+			count++
+		}
+		if cs.Width == 0 {
+			if isRow {
+				innerW = natMain + gx*max(0, count-1)
+			} else {
+				innerW = natCross
+			}
+		}
+		if cs.Height == 0 {
+			if isRow {
+				innerH = natCross
+			} else {
+				innerH = natMain + gy*max(0, count-1)
+			}
+		}
 	}
 	return
 }
@@ -94,11 +84,8 @@ func (al *AutoLayout) buildLines(isRow bool, mainLimit, gx, gy int) []line {
 
 		// Compute the effective line limit, respecting auto-height column logic.
 		effectiveLimit := mainLimit
-		if !autoHeightColumn && effectiveLimit > 0 {
-			effectiveLimit -= 0 // keep consistent path, placeholder for future adjustments
-			if effectiveLimit < 0 {
-				effectiveLimit = 0
-			}
+		if autoHeightColumn {
+			effectiveLimit = 0 // unlimited for wrapping
 		}
 
 		// Wrap to a new line if needed.

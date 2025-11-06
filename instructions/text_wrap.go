@@ -405,14 +405,14 @@ func (t *Text) autoSpacing(lines []string) float64 {
 		}
 	}
 
-	fill := 1.0
+	var fill = 1.0
 	if countW > 0 {
 		fill = geom.ClampF64(totalWidth/(t.maxWidth*float64(countW)), fillMin, fillMax)
 	}
 	fillT := (fill - fillMin) / (fillMax - fillMin)
 	base := geom.Lerp(baseSparse, baseDense, fillT)
 
-	avgScale := 1.0
+	var avgScale = 1.0
 	if countS > 0 {
 		avgScale = geom.ClampF64(totalScale/float64(countS), scaleMin, scaleMax)
 	}
