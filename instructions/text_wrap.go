@@ -79,12 +79,6 @@ func (t *Text) wrapTextScaled() []string {
 			hasMore := si < len(sub)-1 || pi < len(paras)-1
 			appendAndMaybeTruncate(s, hasMore)
 		}
-
-		// Preserve blank line following a paragraph if it exists.
-		if !truncated && pi < len(paras)-1 && paras[pi+1] == "" {
-			appendAndMaybeTruncate("", pi+1 < len(paras)-1)
-			lineIdx++
-		}
 	}
 
 	return out
@@ -458,11 +452,12 @@ func appendEllipsisGraphemes(lines []string, f *render.Font, maxWidth float64) [
 	return lines
 }
 
+// newlineReplacer normalizes CRLF and bare CR to LF in a single pass.
+var newlineReplacer = strings.NewReplacer("\r\n", "\n", "\r", "\n")
+
 // normalizeNewlines converts CRLF and CR to LF.
 func normalizeNewlines(s string) string {
-	s = strings.ReplaceAll(s, "\r\n", "\n")
-	s = strings.ReplaceAll(s, "\r", "\n")
-	return s
+	return newlineReplacer.Replace(s)
 }
 
 // splitGraphemes returns grapheme clusters and their string offsets.

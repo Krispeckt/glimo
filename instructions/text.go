@@ -219,9 +219,11 @@ func (t *Text) Size() *geom.Size {
 		}
 	}
 
-	lineHeight := t.fontForLine(0).LineHeightPx()
-	totalHeight := lineHeight*float64(len(lines)) +
-		lineHeight*spacing*float64(len(lines)-1)
+	firstFont := t.fontForLine(0)
+	lineHeight := firstFont.LineHeightPx()
+	// Visual bounding box: (n-1) full line advances + one visible glyph height.
+	glyphHeight := firstFont.AscentPx() + firstFont.DescentPx()
+	totalHeight := glyphHeight + lineHeight*spacing*float64(len(lines)-1)
 
 	width := t.maxWidth
 	if width <= 0 {
@@ -292,13 +294,13 @@ func (t *Text) drawStroke(base, overlay *image.RGBA, fnt *render.Font, s string,
 	scale := ssScale(fnt.HeightPx())
 
 	// Prepare font at working scale.
-	ff := *fnt
+	ff := fnt.Clone()
 	if scale > 1 {
 		ff.SetFontSizePt(fnt.HeightPt() * float64(scale))
 	}
 
 	// Rasterize glyph masks.
-	maskBig, maskSmall, bw, bh, dw, dh := rasterizeGlyphMasks(&ff, s, scale)
+	maskBig, maskSmall, bw, bh, dw, dh := rasterizeGlyphMasks(ff, s, scale)
 	if bw <= 0 || bh <= 0 {
 		return
 	}
@@ -343,13 +345,13 @@ func (t *Text) drawProcess(base, overlay *image.RGBA, fnt *render.Font, s string
 	scale := ssScale(fnt.HeightPx())
 
 	// Prepare font at working scale.
-	ff := *fnt
+	ff := fnt.Clone()
 	if scale > 1 {
 		ff.SetFontSizePt(fnt.HeightPt() * float64(scale))
 	}
 
 	// Rasterize glyph masks.
-	_, maskSmall, bw, bh, dw, dh := rasterizeGlyphMasks(&ff, s, scale)
+	_, maskSmall, bw, bh, dw, dh := rasterizeGlyphMasks(ff, s, scale)
 	if bw <= 0 || bh <= 0 {
 		return
 	}
@@ -383,19 +385,18 @@ func (t *Text) alignX(anchorX, lineWidth float64, align AlignText) float64 {
 	}
 }
 
-// fontForLine returns a new font instance scaled per line index
-// according to the configured scaleStep.
+// fontForLine returns a font for the given line index, scaled by scaleStep.
 func (t *Text) fontForLine(lineIdx int) *render.Font {
-	fc := *t.font
 	if lineIdx == 0 || t.scaleStep == 0 {
-		return &fc
+		return t.font
 	}
+	fc := t.font.Clone()
 	newPt := t.font.HeightPt() + t.scaleStep*float64(lineIdx)
 	if newPt < 1 {
 		newPt = 1
 	}
 	fc.SetFontSizePt(newPt)
-	return &fc
+	return fc
 }
 
 // safeRadius returns a non-zero integer radius derived from stroke width.
@@ -405,16 +406,21 @@ func (t *Text) safeRadius() int {
 
 // rasterizeGlyphMasks draws glyphs into an alpha mask at optional supersampled resolution.
 // It returns both high- and low-resolution masks for stroke and fill processing.
+//
+// Coordinate model: visual-top (y=0 is the top of the tallest glyph).
+// Baseline = ascent; bitmap height = ascent + descent (no leading).
 func rasterizeGlyphMasks(ff *render.Font, s string, scale int) (maskBig *image.RGBA, maskSmall *image.RGBA, bw, bh, dw, dh int) {
-	w, h := ff.MeasureString(s)
+	w, _ := ff.MeasureString(s)
+	ascent := ff.AscentPx()
 	descent := ff.DescentPx()
-	bw, bh = int(math.Ceil(w)), int(math.Ceil(h+descent))
+	bw, bh = int(math.Ceil(w)), int(math.Ceil(ascent+descent))
 	if bw <= 0 || bh <= 0 {
 		return nil, nil, bw, bh, 0, 0
 	}
 
 	maskBig = image.NewRGBA(image.Rect(0, 0, bw, bh))
-	baselineY := math.Round(ff.BaselineForTopY(0))
+	// Visual-top model: baseline is exactly ascent pixels from the top.
+	baselineY := math.Round(ascent)
 	_ = ff.DrawString(maskBig, colors.Black, s, 0, baselineY)
 
 	if scale == 1 {

@@ -173,10 +173,10 @@ func (r *Rectangle) SetPosition(x, y int) {
 	r.x, r.y = float64(x), float64(y)
 }
 
-// Size returns rectangle size.
+// Size returns rectangle size including stroke outset on both sides.
 func (r *Rectangle) Size() *geom.Size {
 	o := r.strokePos.Outset(r.lineWidth)
-	return geom.NewSize(r.width+o, r.height+o)
+	return geom.NewSize(r.width+2*o, r.height+2*o)
 }
 
 // Position returns the top-left coordinate where the layer is drawn.

@@ -123,13 +123,9 @@ func (al *AutoLayout) placeLines(lines []line, isRow bool, innerW, innerH, pl, p
 			}
 			recs = append(recs, rec)
 
-			// Flex factors.
+			// Flex factors. FlexShrink == 0 means the item does not shrink (CSS spec).
 			totalGrow += n.st.FlexGrow
-			if n.st.FlexShrink == 0 {
-				totalShrink += 1
-			} else {
-				totalShrink += n.st.FlexShrink
-			}
+			totalShrink += n.st.FlexShrink
 		}
 
 		// Count fixed gaps actually used between items, honoring IgnoreGapBefore of the next item.
@@ -184,7 +180,8 @@ func (al *AutoLayout) placeLines(lines []line, isRow bool, innerW, innerH, pl, p
 			for i, r := range recs {
 				sh := r.n.st.FlexShrink
 				if sh == 0 {
-					sh = 1
+					// FlexShrink:0 — item does not participate in shrinking.
+					continue
 				}
 				share := float64(need) * (sh / totalShrink)
 				f := int(math.Floor(share))

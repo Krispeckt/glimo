@@ -3,18 +3,25 @@ package instructions
 import (
 	"image"
 	"sort"
+	"sync"
 
 	"github.com/Krispeckt/glimo/internal/core/geom"
 )
 
 // AutoLayout is a flexible container that arranges child shapes according to
 // Flexbox-like rules and draws them to an overlay image. It never modifies the base layer.
+//
+// Thread safety: concurrent calls to Add, SetStyle, Size, and Draw are safe.
+// Shapes added to the AutoLayout must not be concurrently modified by other
+// goroutines while Draw is running.
 type AutoLayout struct {
+	mu       sync.Mutex
 	x, y     int // container origin
 	style    ContainerStyle
 	children []*node
 	w, h     int
 	dirty    bool // marks layout as invalidated
+	computed bool // true once layoutFlex has run at least once
 }
 
 // NewAutoLayout constructs a new flex container anchored at (x, y).
@@ -34,9 +41,11 @@ func (al *AutoLayout) Add(s Shape, st ItemStyle) *AutoLayout {
 		n.meas = bs
 		n.pos = bs
 	}
+	al.mu.Lock()
 	al.children = append(al.children, n)
-	al.w, al.h = 0, 0
 	al.dirty = true
+	al.computed = false
+	al.mu.Unlock()
 	return al
 }
 
@@ -45,14 +54,18 @@ func (al *AutoLayout) SetStyle(style ContainerStyle) {
 	if style.Display != DisplayFlex {
 		style.Display = DisplayFlex
 	}
+	al.mu.Lock()
 	al.style = style
-	al.w, al.h = 0, 0
 	al.dirty = true
+	al.computed = false
+	al.mu.Unlock()
 }
 
 // Size returns the outer dimensions of the container including padding.
 // Triggers layout if needed.
 func (al *AutoLayout) Size() *geom.Size {
+	al.mu.Lock()
+	defer al.mu.Unlock()
 	al.ensureLayout()
 	return geom.NewSize(float64(al.w), float64(al.h))
 }
@@ -60,11 +73,17 @@ func (al *AutoLayout) Size() *geom.Size {
 // Draw performs layout, sorts children by ZIndex, and draws each one in order.
 // Shapes implementing Boundable receive SetBounds; else Position/Size are propagated if available.
 func (al *AutoLayout) Draw(base, overlay *image.RGBA) {
+	al.mu.Lock()
 	al.ensureLayout()
 	sort.SliceStable(al.children, func(i, j int) bool {
 		return al.children[i].st.ZIndex < al.children[j].st.ZIndex
 	})
-	for _, n := range al.children {
+	// Snapshot nodes so the lock can be released before calling external Draw methods.
+	nodes := make([]*node, len(al.children))
+	copy(nodes, al.children)
+	al.mu.Unlock()
+
+	for _, n := range nodes {
 		// Propagate resolved bounds to the shape if supported.
 		if b, ok := n.shape.(Boundable); ok {
 			b.SetBounds(n.x, n.y, n.w, n.h)
@@ -80,10 +99,12 @@ func (al *AutoLayout) Draw(base, overlay *image.RGBA) {
 	}
 }
 
-// ensureLayout computes a fresh layout if it is marked dirty or empty.
+// ensureLayout computes a fresh layout if it is marked dirty or not yet computed.
+// Caller must hold al.mu.
 func (al *AutoLayout) ensureLayout() {
-	if al.dirty || (al.w == 0 && al.h == 0) {
+	if al.dirty || !al.computed {
 		al.layoutFlex()
 		al.dirty = false
+		al.computed = true
 	}
 }

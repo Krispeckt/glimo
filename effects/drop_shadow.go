@@ -154,9 +154,7 @@ func (e *DropShadowEffect) Apply(dst *image.RGBA) {
 
 // clearAlpha sets all pixels in an RGBA image to transparent (zeroed).
 func clearAlpha(img *image.RGBA) {
-	for i := range img.Pix {
-		img.Pix[i] = 0
-	}
+	clear(img.Pix)
 }
 
 // fastBlurAlpha performs a separable box blur on the alpha channel of an image.
